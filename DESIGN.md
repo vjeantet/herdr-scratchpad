@@ -35,7 +35,12 @@ portée du projet (§11).
 
 ## 3. Le panneau
 
-- Docké **en bas**, ~30 % de hauteur, pleine largeur.
+- Docké **en bas**, ~30 % de hauteur, pleine largeur — via le **script
+  lanceur**, obligatoirement. Le manifeste ne sait pas l'exprimer : `placement`
+  n'accepte que `overlay|popup|split|tab|zoomed`, il n'a ni `direction` ni
+  `ratio`, et un split déclaratif est câblé en 50/50 vers la droite
+  (`ratio.unwrap_or(0.5)`, herdr `src/workspace/tab.rs:361`). L'entrée
+  `[[panes]]` du manifeste n'est qu'un repli dégradé mais fonctionnel.
   Le texte d'un scratchpad est *large* — chemins, commandes, URLs, blocs collés.
   La largeur est la ressource utile, pas la hauteur. C'est aussi le seul
   placement où la barre de boutons est confortable au doigt sur petit écran.
@@ -87,15 +92,23 @@ rattrapage du vidage (§7).
 
 ### Souris
 
-Capture **intégrale**. Conséquence assumée : la sélection native du terminal ne
-fonctionne plus dans le pane — on ne peut plus glisser pour attraper trois
-lignes. L'échappatoire existe et est gratuite : le `copy_mode` clavier de herdr
-(`prefix`+…) reste disponible.
+Capture **intégrale**.
+
+> **Correction du 2026-08-24, à l'implémentation.** Le compromis annoncé lors de
+> la session — « la sélection native est perdue » — était trop pessimiste.
+> herdr **réserve `Shift`+souris à la sélection du terminal**, et les plugins
+> doivent laisser passer ces événements sans y toucher (règle appliquée partout
+> dans `herdr-file-viewer` : `if ev.modifiers.contains(SHIFT) { return noop }`).
+> `Shift`+glisser continue donc de sélectionner normalement dans le pane. La
+> capture ne coûte que la sélection *sans* modificateur.
+
+Le `copy_mode` clavier de herdr (`prefix`+…) reste disponible en plus.
 
 Réimplémenter le glisser-sélectionner à l'intérieur (comme le fait
 `herdr-file-viewer` dans `src/preview.rs`) a été écarté : c'est de loin la
 partie la plus chère du projet, pour un outil dont la copie est par définition
-« **tout** copier ».
+« **tout** copier » — et la correction ci-dessus lui retire son dernier
+argument.
 
 Barre du bas cliquable, une seule ligne :
 

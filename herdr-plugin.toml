@@ -1,0 +1,33 @@
+# Manifeste de herdr-scratchpad — un presse-papier éditable persistant.
+#
+# Note de conception : le dock EN BAS à 30 % n'est PAS exprimable ici. Le
+# manifeste n'accepte que `placement = overlay|popup|split|tab|zoomed`, sans
+# `direction` ni `ratio`, et un split déclaratif est câblé en 50/50 vers la
+# droite (herdr, src/app/api/plugins/panes.rs -> tab.rs:361). L'entrée
+# [[panes]] ci-dessous n'est donc qu'un REPLI utilisable ; le vrai placement
+# vient du script lanceur, qui appelle `pane split --direction down --ratio`.
+
+id = "herdr-scratchpad"
+name = "herdr-scratchpad"
+version = "0.1.0"
+description = "Presse-papier éditable persistant : un texte global, copiable en une touche, sauvegardé en texte brut."
+min_herdr_version = "0.8.0"
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["cargo", "build", "--release"]
+
+# Repli déclaratif : ouvre le pane sans le placement voulu, quand le script
+# n'est pas disponible ou que le binaire n'est pas encore construit.
+[[panes]]
+id = "scratchpad"
+title = "Scratchpad"
+description = "Le pane scratchpad, sans le placement du lanceur."
+placement = "split"
+command = ["./target/release/herdr-scratchpad"]
+
+[[actions]]
+id = "open-scratchpad"
+title = "Toggle scratchpad"
+description = "Ouvre le scratchpad docké en bas (le focalise s'il est ouvert, le ferme s'il est focalisé)."
+command = ["bash", "scripts/open-scratchpad.sh"]

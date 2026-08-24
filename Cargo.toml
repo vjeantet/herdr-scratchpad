@@ -1,0 +1,16 @@
+[package]
+name = "herdr-scratchpad"
+version = "0.1.0"
+edition = "2024"
+description = "Persistent editable clipboard pane for herdr"
+license = "MIT"
+
+[[bin]]
+name = "herdr-scratchpad"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.30"
+crossterm = "0.29"
+unicode-width = "0.2"
+serde_json = "1"
