@@ -235,6 +235,8 @@ Ne pas ajouter sans rouvrir `DESIGN.md` :
 - cloisonnement par workspace — le buffer est global, c'est le point ;
 - touche pour quitter — `prefix+a` referme ;
 - confirmation à l'envoi — la cible affichée en permanence *est* le garde-fou ;
+- message de retour au cyclage — il masquerait la zone cible pendant 3 s, donc
+  le clic suivant ; la zone est son propre retour ;
 - traitement du cas « agent occupé » — sans objet quand on dépose sans soumettre ;
 - garde-fou de taille à l'envoi — le plafond est 1 Mo, inatteignable ;
 - Windows — intestable depuis un Pi headless.

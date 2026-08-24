@@ -424,12 +424,14 @@ impl App {
     }
 
     /// Cible suivante, en boucle. Ne touche pas au texte.
+    ///
+    /// **Aucun message de retour**, contrairement aux autres commandes : la
+    /// zone cible affiche déjà la destination en permanence, c'est tout son
+    /// rôle. Un message la dirait deux fois — et surtout, un message prend la
+    /// place des boutons pendant trois secondes, donc masquerait la zone qu'on
+    /// est en train de manipuler et rendrait le cyclage au clic impraticable.
     fn cycle_target(&mut self) {
         self.target = agents::next(&self.targets, self.target);
-        match self.current_target() {
-            Some(t) => self.say(format!("→ {}·{}", t.agent, t.workspace_label)),
-            None => self.say("aucun agent".into()),
-        }
     }
 
     fn say(&mut self, message: String) {
@@ -1011,6 +1013,46 @@ mod tests {
         app.on_key(ctrl('n'));
         assert_eq!(app.current_target().unwrap().agent, "claude", "le cyclage boucle");
         assert_eq!(text_of(&app), "intact");
+    }
+
+    /// Un message remplace les boutons pendant trois secondes : en afficher un
+    /// au cyclage masquerait la zone cible, et il faudrait attendre pour
+    /// recliquer dessus.
+    #[test]
+    fn cycler_ne_masque_pas_la_barre() {
+        let mut app = wired("x", None);
+        app.on_key(ctrl('n'));
+        assert!(app.status.is_none(), "le cyclage ne doit rien afficher");
+    }
+
+    /// Même sans cible, le cyclage reste muet : la zone dit déjà « aucun
+    /// agent », et elle doit rester cliquable.
+    #[test]
+    fn cycler_sans_agent_reste_muet() {
+        let mut app = wired_empty("x");
+        app.on_key(ctrl('n'));
+        assert!(app.status.is_none());
+        assert!(app.current_target().is_none());
+    }
+
+    /// Deux clics de suite sur la zone cible doivent avancer de deux crans.
+    #[test]
+    fn deux_clics_de_suite_sur_la_zone_cible_avancent_deux_fois() {
+        let mut app = wired("x", None);
+        app.buttons = vec![(Action::CycleTarget, Rect { x: 0, y: 0, width: 12, height: 1 })];
+        let depart = app.current_target().unwrap().pane_id.clone();
+
+        for _ in 0..2 {
+            app.on_mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 1,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        // Deux cibles en tout : deux crans ramènent au départ.
+        assert_eq!(app.current_target().unwrap().pane_id, depart);
+        assert!(app.status.is_none());
     }
 
     #[test]

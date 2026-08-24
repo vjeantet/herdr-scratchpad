@@ -348,6 +348,12 @@ dangereuse ne doit pas être la seule à exiger le clavier.
 un scratchpad qui mange les tabulations d'un bloc de code collé trahit sa
 fonction.
 
+Le cyclage est la seule commande **sans message de retour**. §6 fait remplacer
+les boutons par le message pendant trois secondes : au cyclage, ça masquerait
+la zone cible — celle qu'on vient de cliquer et qu'on veut recliquer — et
+dirait de toute façon ce qu'elle affiche déjà en permanence. Le retour d'une
+commande qui ne fait que changer un affichage, c'est cet affichage.
+
 ### 14.6 Fraîcheur de la cible
 
 Rafraîchissement de l'affichage toutes les **2,5 s**, et **revérification au
