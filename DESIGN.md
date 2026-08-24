@@ -2,7 +2,14 @@
 
 > Document issu d'une session de questionnement structuré du 2026-08-24.
 > Toutes les décisions ci-dessous ont été posées une par une et validées.
-> Aucune ligne de code n'a encore été écrite : ce document précède l'implémentation.
+>
+> §1 à §13 précédaient l'implémentation ; §14 a été ajouté ensuite, par la même
+> méthode. Le document est **maintenu** : les décisions démenties à l'usage
+> portent une correction datée à l'endroit où elles avaient été prises, plutôt
+> qu'une réécriture qui effacerait le raisonnement d'origine.
+>
+> Ce qui est implémenté, et les écarts qui subsistent, sont dans
+> [`CLAUDE.md`](CLAUDE.md) — pas ici.
 
 ## 1. Ce que c'est
 
@@ -52,7 +59,8 @@ portée du projet (§11).
 - Raccourci : `prefix+a` (libre ; `prefix+f`/`prefix+shift+f` sont au
   file-viewer, `prefix+t` à Notes).
 - `prefix+shift+a` : variante tab dédiée plein écran, pour les moments où on
-  veut vraiment écrire.
+  veut vraiment écrire. **Non implémenté à ce jour** — le manifeste ne déclare
+  qu'une action. Décider un jour entre l'écrire et retirer la promesse.
 - Retour à la ligne automatique sur les lignes longues.
 
 ## 4. Commandes et touches

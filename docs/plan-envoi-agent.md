@@ -1,5 +1,30 @@
 # Plan — bouton « envoyer à l'agent »
 
+> **ARCHIVE — ce plan est exécuté.** Livré par le commit
+> « Implémente le bouton d'envoi vers un agent ». Ce n'est plus une liste de
+> travaux : le résultat vit dans `DESIGN.md` §14 (les décisions) et
+> `CLAUDE.md` (l'état et les pièges). Ne pas le rejouer.
+>
+> Trois écarts assumés à l'exécution, tous documentés dans le code :
+>
+> 1. `ipc::call_json` est devenu `call_raw`, qui rend la **ligne brute**. Le
+>    parsing reste dans `agents.rs`, où il est pur et testable sans socket. Les
+>    appels passent par un trait `Herdr`, qui sert aussi de couture de test.
+> 2. `agents::targets` prend un troisième paramètre `exclude_pane`, pour que le
+>    garde-fou « ne pas se proposer soi-même » soit testé là où il vit.
+> 3. La zone cible reçoit un **budget de largeur** (`bar.width / 3`, plancher
+>    13). Cas non prévu par le plan : un libellé de workspace long débordait, et
+>    la règle « on s'arrête au premier élément qui ne tient pas » emportait toute
+>    la barre à sa droite.
+>
+> Deux décisions du plan ont en outre été **corrigées au test en vrai**, et
+> portées dans `DESIGN.md` §14.4 et §14.9 : la cible par défaut se lit dans la
+> tab et non dans le workspace, et le focus suit le texte.
+>
+> ---
+>
+> *Texte d'origine ci-dessous.*
+>
 > Plan d'implémentation autonome. Il est écrit pour être exécuté dans une
 > **session neuve**, sans le contexte de la conversation qui l'a produit.
 > Tout ce qui est nécessaire est ici ou référencé par chemin exact.

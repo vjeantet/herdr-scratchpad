@@ -8,6 +8,44 @@ décisions sont dans [`DESIGN.md`](DESIGN.md) ; ici, le *comment* et les pièges
 Le dépôt est rédigé **en français**, code compris (commentaires, messages
 d'interface, noms de tests). Répondre et rédiger en français.
 
+## Où en est le projet
+
+Tout ce que `DESIGN.md` décrit est implémenté et vérifié sur des panes vivants,
+**sauf** ce qui est listé en « Points ouverts » ci-dessous.
+
+| Fonction | Touche | Design |
+| --- | --- | --- |
+| coller / éditer / recharger depuis le fichier | — | §1, §8, §9, §11 |
+| copier vers le terminal hôte (OSC 52) | `Ctrl+C` | §5 |
+| vider, avec case de secours à une place | `Ctrl+L` | §7 |
+| exporter un instantané `/tmp/herdr-scratchpad.txt` | `Ctrl+S` | §10 |
+| rattraper le dernier vidage **ou envoi** | `Ctrl+Z` | §7, §14.2 |
+| déposer chez un agent, vider, basculer dessus | `Ctrl+E` | §14 |
+| agent suivant | `Ctrl+N` | §14.5 |
+| toggle du pane docké en bas | `prefix+a` | §3 |
+
+`docs/plan-envoi-agent.md` est le plan qui a produit §14. Il est **exécuté** :
+c'est un document d'archive, pas une liste de travaux.
+
+## Points ouverts
+
+Connus, non traités, par ordre de gêne réelle :
+
+1. **Deux agents de même nom dans le même workspace sont indiscernables.**
+   `agents::label` rend `→ claude·wdv` pour `w3:p1` comme pour `w3:p2`. Depuis
+   que le cyclage est muet, passer de l'un à l'autre ne produit donc **aucun
+   changement visible** — et le garde-fou de §14.3 (« lire la destination avant
+   d'appuyer ») ne tient plus dans ce cas. Pistes : un rang (`2/3`), le
+   `terminal_title_stripped` de l'agent, ou le suffixe du `pane_id`. Le tri
+   étant stable, un rang est fiable.
+2. **`prefix+shift+a` n'existe pas.** `DESIGN.md` §3 annonce une variante « tab
+   dédiée plein écran » ; il n'y a qu'une action au manifeste. Soit
+   l'implémenter, soit retirer la promesse du design.
+3. **Pas de cyclage arrière.** Assumé tant qu'il y a deux ou trois agents.
+4. **Scratchpad seul dans sa tab** : rien à qui céder le focus avant
+   `pane close`, donc la fenêtre de 500 ms de l'autosave subsiste (cf. « `pane
+   close` tue sans signal »).
+
 ## Boucle de travail
 
 ```
@@ -31,6 +69,25 @@ herdr pane read <pane_id>          # lire l'écran du pane, très utile en test
 herdr pane send-keys <pane_id> ctrl+s
 ```
 
+### Tester sans marcher sur la session de quelqu'un
+
+`plugin action invoke` agit sur le pane **focalisé**, pas sur le tien : si un
+scratchpad est déjà ouvert dans la tab focalisée, l'invocation le *focalise* au
+lieu d'en créer un. On se retrouve alors à piloter le pane de l'utilisateur en
+croyant piloter le sien — c'est arrivé.
+
+Vérifier à qui on parle avant d'envoyer quoi que ce soit :
+
+```
+pgrep -f 'target/release/herdr-scratchpad$'
+tr '\0' '\n' < /proc/<pid>/environ | grep HERDR_PANE_ID
+ps -o lstart= -p <pid>            # à comparer au mtime du binaire
+```
+
+`pane read` est sans effet de bord ; `pane send-keys` et `pane close` n'en sont
+pas. Le dépôt chez un agent atterrit dans une vraie boîte de saisie : le
+nettoyage est `pane send-keys <agent> ctrl+u`, qui défait le collage.
+
 ## Architecture
 
 | Fichier | Rôle |
@@ -50,6 +107,33 @@ herdr pane send-keys <pane_id> ctrl+s
 fonctions pures testables (`--launch-decision`, `--focused-pane`,
 `--open-plan`). Un bug de toggle se reproduit avec un `echo | binaire`, jamais
 en réouvrant des panes à la main.
+
+## Écrire des tests
+
+Tous unitaires, tous dans le fichier qu'ils testent (`cargo test` en donne le
+compte). Conventions :
+
+- **noms en français**, une phrase qui dit le comportement attendu ;
+- **aucun socket, nulle part** ; et pas de disque non plus, sauf dans
+  `state.rs` où c'est précisément l'objet du test — il travaille alors dans un
+  répertoire jetable nommé d'après le pid, jamais dans l'état réel ;
+- un test qui aurait besoin d'un pane ou d'un serveur est le signe qu'une
+  décision devrait être une fonction pure ailleurs ;
+- une assertion par comportement, et le message d'assertion dit *pourquoi*.
+
+Les deux coutures qui rendent ça possible :
+
+- **`launch.rs` et `agents.rs` sont purs** : ils prennent du JSON en `&str` et
+  rendent une décision. C'est là que va toute logique qui, sinon, exigerait un
+  pane ou un serveur.
+- **`ipc::Herdr` est un trait**. `App` en tient un `Box<dyn Herdr>` ;
+  `App::with_herdr` en substitue un faux dans les tests (`FakeHerdr`, qui
+  répond du JSON figé et retient ce qu'on lui a demandé). Un `Rc<FakeHerdr>`
+  est lui aussi un `Herdr`, ce qui permet au test de garder un handle sur le
+  faux pendant que `App` en possède un exemplaire.
+
+Ajouter un appel socket = ajouter une méthode au trait, pas un appel direct à
+`ipc::` depuis `app.rs`.
 
 ## Pièges herdr (vérifiés dans les sources, pas devinés)
 
