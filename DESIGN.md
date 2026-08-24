@@ -84,8 +84,10 @@ annuler. Rien à mémoriser. Seule bizarrerie assumée : `Ctrl+C` n'interrompt p
 — mais dans un scratchpad il n'y a rien à interrompre.
 
 `Ctrl+E` et `Ctrl+N` sont arrivés plus tard (§14) et n'ont pas cette évidence :
-`E` pour *envoyer*, `N` pour *next*. Elles étaient libres précisément parce que
-§4 refuse le readline.
+`E` pour *emit*, `N` pour *next*. L'interface étant en anglais, le libellé
+`^E emit to agent` porte l'initiale de sa propre touche — c'est ce lien, et non
+le sens exact du verbe, qui l'a fait préférer à `send`. Elles étaient libres
+précisément parce que §4 refuse le readline.
 
 **Aucune touche pour quitter.** `prefix+a` referme le pane, geste symétrique de
 celui qui l'a ouvert. Un `Ctrl+Q` sur un panneau qu'on veut permanent ne sert
@@ -129,7 +131,7 @@ argument.
 Barre du bas cliquable, une seule ligne :
 
 ```
-[^C copier] [^L vider] [^Z annuler] [^E envoyer] [→ claude·p3]
+[^C copy] [^L clear] [^Z undo] [^E emit to agent] [→ claude·p3]
 ```
 
 Le destructif n'est pas au bord, là où le pouce dérape. L'ordre est celui de
@@ -166,7 +168,7 @@ pour un outil de transit.
 ## 6. Retour visuel
 
 Une **seule ligne**, en bas, qui fait les deux : les boutons y vivent, et le
-retour s'y affiche à leur place ~3 secondes (`copié · 1,2 Ko`, ou le chemin
+retour s'y affiche à leur place ~3 secondes (`copied · 1.2 KB`, ou le chemin
 d'export) avant qu'ils ne reviennent. Coût fixe : une ligne, jamais plus.
 
 Masquer les boutons pendant ce temps est sans conséquence : on ne reclique pas
@@ -339,7 +341,7 @@ Sans branche de conception à ouvrir dessus :
 > Ajout du 2026-08-24, même méthode : décisions posées une par une avant la
 > première ligne de code.
 
-Un bouton `[^E envoyer]` et une zone `[→ claude·p3]` à droite de la barre du
+Un bouton `[^E emit to agent]` et une zone `[→ claude·p3]` à droite de la barre du
 bas. Le texte du scratchpad est **déposé** dans la boîte de saisie d'un agent
 herdr, puis le scratchpad se vide dans sa case de secours.
 
@@ -403,12 +405,12 @@ qui n'existe que pour refuser est du bruit.
 **Ordre de la barre** : les commandes fixes à gauche, le variable à droite.
 
 ```
-0 agent    ^C copier · ^L vider · ^Z annuler
-1 agent    ^C copier · ^L vider · ^Z annuler · ^E envoyer
-2 agents   ^C copier · ^L vider · ^Z annuler · ^E envoyer · → claude·p3
+0 agent    ^C copy · ^L clear · ^Z undo
+1 agent    ^C copy · ^L clear · ^Z undo · ^E emit to agent
+2 agents   ^C copy · ^L clear · ^Z undo · ^E emit to agent · → claude·p3
 ```
 
-`^S fichier` ne figure dans aucune des trois : il n'a plus de bouton (§4), sa
+`^S file` ne figure dans aucune des trois : il n'a plus de bouton (§4), sa
 touche et sa fonction sont intactes.
 
 La liste d'agents est rafraîchie toutes les 2,5 s : `^E` et la zone

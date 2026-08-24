@@ -68,7 +68,7 @@ fn error_of(line: &str) -> Option<String> {
         .get("message")
         .and_then(serde_json::Value::as_str)
         .or_else(|| error.get("code").and_then(serde_json::Value::as_str))
-        .unwrap_or("erreur inconnue");
+        .unwrap_or("unknown error");
     Some(message.to_owned())
 }
 

@@ -331,25 +331,25 @@ impl App {
     fn copy(&mut self) {
         let text = self.buf.text();
         match clipboard::copy(&text) {
-            Ok(len) => self.say(format!("copié · {}", human(len))),
-            Err(CopyError::Empty) => self.say("rien à copier".into()),
+            Ok(len) => self.say(format!("copied · {}", human(len))),
+            Err(CopyError::Empty) => self.say("nothing to copy".into()),
             Err(CopyError::TooLarge { len }) => self.say(format!(
-                "{} > {} — ^S écrit le fichier",
+                "{} > {} — ^S writes the file",
                 human(len),
                 human(MAX_CLIPBOARD_BYTES)
             )),
-            Err(CopyError::Io(e)) => self.say(format!("copie impossible : {e}")),
+            Err(CopyError::Io(e)) => self.say(format!("copy failed: {e}")),
         }
     }
 
     fn clear(&mut self) {
         let text = self.buf.text();
         if text.is_empty() {
-            self.say("déjà vide".into());
+            self.say("already empty".into());
             return;
         }
         self.stash_and_clear(text);
-        self.say("vidé · ^Z annule".into());
+        self.say("cleared · ^Z undoes".into());
     }
 
     /// Déplace le texte dans la case de secours et vide le buffer.
@@ -373,9 +373,9 @@ impl App {
                 self.buf = Buffer::from_text(&text);
                 self.touch();
                 self.flush();
-                self.say("restauré".into());
+                self.say("restored".into());
             }
-            None => self.say("rien à restaurer".into()),
+            None => self.say("nothing to restore".into()),
         }
     }
 
@@ -383,7 +383,7 @@ impl App {
         let text = self.buf.text();
         match state::export(&text, self.tab_id.as_deref()) {
             Ok(path) => self.say(path.display().to_string()),
-            Err(e) => self.say(format!("export impossible : {e}")),
+            Err(e) => self.say(format!("export failed: {e}")),
         }
     }
 
@@ -395,7 +395,7 @@ impl App {
     fn send(&mut self) {
         let text = self.buf.text();
         if text.is_empty() {
-            self.say("rien à envoyer".into());
+            self.say("nothing to emit".into());
             return;
         }
 
@@ -404,7 +404,7 @@ impl App {
         // place : le garde-fou est l'affichage, il perdrait tout son sens si
         // la destination pouvait changer entre la lecture et l'appui.
         let Some(intended) = self.current_target().map(|t| t.pane_id.clone()) else {
-            self.say("aucun agent".into());
+            self.say("no agent".into());
             return;
         };
 
@@ -412,17 +412,17 @@ impl App {
         // qu'à peu près à jour, l'action doit être exactement juste.
         self.refresh_targets();
         let Some(target) = self.targets.iter().find(|t| t.pane_id == intended).cloned() else {
-            self.say("agent introuvable".into());
+            self.say("agent not found".into());
             return;
         };
 
         if let Err(e) = self.herdr.send_input(&target.pane_id, &text) {
-            self.say(format!("envoi impossible : {e}"));
+            self.say(format!("emit failed: {e}"));
             return;
         }
 
         self.stash_and_clear(text);
-        self.say(format!("envoyé → {} · ^Z annule", target.agent));
+        self.say(format!("emitted → {} · ^Z undoes", target.agent));
 
         // Basculer chez l'agent est la fin du geste : déposer, relire,
         // soumettre. Sans ça il faudrait aller chercher le pane à la main,
@@ -481,7 +481,7 @@ impl App {
         if let Some(store) = self.store.as_mut()
             && let Err(e) = store.save(&text)
         {
-            self.status = Some((format!("sauvegarde impossible : {e}"), Instant::now()));
+            self.status = Some((format!("save failed: {e}"), Instant::now()));
             return;
         }
         self.dirty = false;
@@ -608,14 +608,14 @@ fn live_tabs(herdr: &dyn Herdr) -> Option<Vec<String>> {
 
 /// Taille lisible. Les tailles qui comptent ici vont de l'octet au méga-octet.
 fn human(bytes: usize) -> String {
-    const KO: usize = 1024;
-    const MO: usize = KO * KO;
-    if bytes >= MO {
-        format!("{:.1} Mo", bytes as f64 / MO as f64)
-    } else if bytes >= KO {
-        format!("{:.1} Ko", bytes as f64 / KO as f64)
+    const KB: usize = 1024;
+    const MB: usize = KB * KB;
+    if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
     } else {
-        format!("{bytes} o")
+        format!("{bytes} B")
     }
 }
 
@@ -812,7 +812,7 @@ mod tests {
         let mut app = App::headless("intact");
         app.on_key(ctrl('z'));
         assert_eq!(text_of(&app), "intact");
-        assert!(app.status.as_ref().unwrap().0.contains("rien"));
+        assert!(app.status.as_ref().unwrap().0.contains("nothing"));
     }
 
     /// La case n'a qu'une place : un second vidage remplace le contenu
@@ -855,7 +855,7 @@ mod tests {
     fn copy_of_an_empty_buffer_reports_nothing_to_copy() {
         let mut app = App::headless("");
         app.on_key(ctrl('c'));
-        assert!(app.status.as_ref().unwrap().0.contains("rien à copier"));
+        assert!(app.status.as_ref().unwrap().0.contains("nothing to copy"));
     }
 
     #[test]
@@ -951,10 +951,10 @@ mod tests {
 
     #[test]
     fn human_sizes_are_readable() {
-        assert_eq!(human(0), "0 o");
-        assert_eq!(human(512), "512 o");
-        assert_eq!(human(1024), "1.0 Ko");
-        assert_eq!(human(1024 * 1024), "1.0 Mo");
+        assert_eq!(human(0), "0 B");
+        assert_eq!(human(512), "512 B");
+        assert_eq!(human(1024), "1.0 KB");
+        assert_eq!(human(1024 * 1024), "1.0 MB");
     }
     // -- envoyer à l'agent -------------------------------------------------
 
@@ -962,7 +962,7 @@ mod tests {
     fn ctrl_e_sur_un_buffer_vide_ne_vide_rien_et_le_dit() {
         let mut app = wired("", None);
         app.on_key(ctrl('e'));
-        assert!(status_of(&app).contains("rien à envoyer"), "{}", status_of(&app));
+        assert!(status_of(&app).contains("nothing to emit"), "{}", status_of(&app));
         assert!(app.stash.is_none(), "la case de secours doit rester intacte");
     }
 
@@ -971,7 +971,7 @@ mod tests {
         let mut app = wired("à envoyer", None);
         app.on_key(ctrl('e'));
         assert_eq!(text_of(&app), "");
-        assert!(status_of(&app).starts_with("envoyé → claude"), "{}", status_of(&app));
+        assert!(status_of(&app).starts_with("emitted → claude"), "{}", status_of(&app));
     }
 
     /// Le dépôt est un **déplacement** : `Ctrl+Z` doit le rattraper, comme un
@@ -992,7 +992,7 @@ mod tests {
         app.on_key(ctrl('e'));
         assert_eq!(text_of(&app), "précieux");
         assert!(app.stash.is_none());
-        assert!(status_of(&app).contains("impossible"), "{}", status_of(&app));
+        assert!(status_of(&app).contains("failed"), "{}", status_of(&app));
     }
 
     #[test]
@@ -1000,7 +1000,7 @@ mod tests {
         let mut app = wired_empty("précieux");
         app.on_key(ctrl('e'));
         assert_eq!(text_of(&app), "précieux");
-        assert!(status_of(&app).contains("aucun agent"), "{}", status_of(&app));
+        assert!(status_of(&app).contains("no agent"), "{}", status_of(&app));
     }
 
     /// La cible affichée a disparu entre l'affichage et l'appui : on ne se
@@ -1019,7 +1019,7 @@ mod tests {
         app.on_key(ctrl('e'));
 
         assert_eq!(text_of(&app), "précieux");
-        assert!(status_of(&app).contains("introuvable"), "{}", status_of(&app));
+        assert!(status_of(&app).contains("not found"), "{}", status_of(&app));
     }
 
     /// Le focus va au pane qui a **effectivement** reçu le texte — le même que

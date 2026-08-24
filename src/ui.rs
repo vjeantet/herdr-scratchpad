@@ -18,7 +18,7 @@ use crate::app::{Action, Command};
 
 /// Aide affichée quand le buffer est vide. Disparaît à la première frappe.
 const EMPTY_HINT: &str =
-    "Colle ici. ^E envoyer · ^C copier · ^L vider · ^S fichier · ^Z annuler";
+    "Paste here. ^E emit to agent · ^C copy · ^L clear · ^S file · ^Z undo";
 
 /// Part de la barre réservée à la zone cible, et son plancher.
 ///
@@ -79,14 +79,14 @@ pub struct BarItem {
 /// maintenant locale à la tab, et `Ctrl+E` reste au clavier.
 fn bar_labels(targets: Targets, bar_width: usize) -> Vec<(Action, String)> {
     let mut out = vec![
-        (Action::Command(Command::Copy), "^C copier".to_owned()),
-        (Action::Command(Command::Clear), "^L vider".to_owned()),
-        (Action::Command(Command::Undo), "^Z annuler".to_owned()),
+        (Action::Command(Command::Copy), "^C copy".to_owned()),
+        (Action::Command(Command::Clear), "^L clear".to_owned()),
+        (Action::Command(Command::Undo), "^Z undo".to_owned()),
     ];
     // Sans agent dans la tab, il n'y a rien à quoi parler : le bouton
     // n'existe pas, plutôt que d'exister pour refuser.
     if targets.count >= 1 {
-        out.push((Action::Command(Command::Send), "^E envoyer".to_owned()));
+        out.push((Action::Command(Command::Send), "^E emit to agent".to_owned()));
     }
     // Avec un seul agent, la zone n'apprendrait rien : elle ne dirait que ce
     // que `^E` fait déjà, et son cyclage n'aurait nulle part où aller.
@@ -435,7 +435,7 @@ mod tests {
     #[test]
     fn buttons_that_do_not_fit_are_dropped() {
         let items = bar(12);
-        assert_eq!(items.len(), 1, "seul « ^C copier » (9) tient dans 12");
+        assert_eq!(items.len(), 1, "seul « ^C copy » (7) tient dans 12");
 
         assert!(bar(3).is_empty());
     }

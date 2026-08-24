@@ -10,7 +10,7 @@
 id = "herdr-scratchpad"
 name = "herdr-scratchpad"
 version = "0.1.0"
-description = "Presse-papier éditable persistant : un texte global, copiable en une touche, sauvegardé en texte brut."
+description = "Persistent editable clipboard: one text buffer, copied with a single key, saved as plain text."
 min_herdr_version = "0.8.0"
 platforms = ["linux", "macos"]
 
@@ -22,12 +22,12 @@ command = ["cargo", "build", "--release"]
 [[panes]]
 id = "scratchpad"
 title = "Scratchpad"
-description = "Le pane scratchpad, sans le placement du lanceur."
+description = "The scratchpad pane, without the launcher placement."
 placement = "split"
 command = ["./target/release/herdr-scratchpad"]
 
 [[actions]]
 id = "open-scratchpad"
 title = "Toggle scratchpad"
-description = "Ouvre le scratchpad docké en bas (le focalise s'il est ouvert, le ferme s'il est focalisé)."
+description = "Opens the scratchpad docked at the bottom (focuses it if open, closes it if focused)."
 command = ["bash", "scripts/open-scratchpad.sh"]

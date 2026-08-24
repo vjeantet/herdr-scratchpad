@@ -18,12 +18,12 @@ herdr plugin link .
 
 | Touche | Bouton | Action |
 | --- | --- | --- |
-| `Ctrl+E` | `^E envoyer` | dépose le texte chez un agent, vide, et bascule dessus |
+| `Ctrl+E` | `^E emit to agent` | dépose le texte chez un agent, vide, et bascule dessus |
 | `Ctrl+N` | `→ claude·p3` | agent suivant de la tab (à partir de deux) |
-| `Ctrl+C` | `^C copier` | copie tout vers le presse-papier de ta machine |
-| `Ctrl+L` | `^L vider` | vide, sans confirmation |
+| `Ctrl+C` | `^C copy` | copie tout vers le presse-papier de ta machine |
+| `Ctrl+L` | `^L clear` | vide, sans confirmation |
 | `Ctrl+S` | — | écrit `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` |
-| `Ctrl+Z` | `^Z annuler` | ramène le dernier contenu vidé ou envoyé |
+| `Ctrl+Z` | `^Z undo` | ramène le dernier contenu vidé ou envoyé |
 
 Ce sont les combinaisons que tes doigts connaissent déjà, chacune à sa
 signification habituelle. Les boutons de la barre du bas font la même chose au
