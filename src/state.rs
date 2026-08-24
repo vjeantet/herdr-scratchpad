@@ -15,6 +15,13 @@ use std::time::SystemTime;
 /// workspace, contrairement à `herdr-notes`.
 const STATE_FILE: &str = "scratchpad.txt";
 
+/// Nom du fichier qui retient la dernière cible d'envoi.
+///
+/// Un fichier **voisin**, et non une ligne dans `scratchpad.txt` : celui-ci
+/// doit rester du texte nu, c'est tout le contrat du canal bidirectionnel
+/// (§8 du DESIGN).
+const TARGET_FILE: &str = "target.txt";
+
 /// Emplacement du fichier d'état.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Store {
@@ -128,6 +135,46 @@ impl Store {
         self.seen = current;
         Some(std::fs::read_to_string(&self.path).unwrap_or_default())
     }
+}
+
+/// Dernière cible d'envoi mémorisée : *(libellé de workspace, agent)*.
+///
+/// Volontairement **pas** un `pane_id` : celui-ci ne survit pas à un
+/// redémarrage de herdr, alors que cette paire se retrouve dans un
+/// `agent.list` neuf.
+pub fn load_target() -> Option<(String, String)> {
+    read_target(&state_dir()?.join(TARGET_FILE))
+}
+
+/// Retient la cible. Un échec est silencieux : perdre cette mémoire ne coûte
+/// qu'un cyclage de plus au prochain démarrage.
+pub fn save_target(workspace_label: &str, agent: &str) {
+    // Le séparateur est une tabulation : un libellé qui en contiendrait une
+    // rendrait le fichier ambigu, on préfère ne rien écrire.
+    if [workspace_label, agent]
+        .iter()
+        .any(|s| s.is_empty() || s.contains('\t') || s.contains('\n'))
+    {
+        return;
+    }
+    if let Some(dir) = state_dir() {
+        let _ = write_target(&dir.join(TARGET_FILE), workspace_label, agent);
+    }
+}
+
+fn read_target(path: &Path) -> Option<(String, String)> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let (label, agent) = raw.trim_end_matches('\n').split_once('\t')?;
+    if label.is_empty() || agent.is_empty() {
+        return None;
+    }
+    Some((label.to_owned(), agent.to_owned()))
+}
+
+/// Même écriture atomique que l'état : deux panes peuvent mémoriser en même
+/// temps, et le temporaire porte déjà le pid.
+fn write_target(path: &Path, workspace_label: &str, agent: &str) -> std::io::Result<()> {
+    Store::at(path.to_owned()).save(&format!("{workspace_label}\t{agent}"))
 }
 
 /// Chemin de l'instantané d'export.
@@ -261,5 +308,38 @@ mod tests {
     fn export_path_is_stable_across_calls() {
         assert_eq!(export_path(), export_path());
         assert!(export_path().ends_with("herdr-scratchpad.txt"));
+    }
+    #[test]
+    fn la_cible_memorisee_fait_un_aller_retour() {
+        let path = scratch("target").join(TARGET_FILE);
+        write_target(&path, "wdv", "claude").unwrap();
+        assert_eq!(
+            read_target(&path),
+            Some(("wdv".to_owned(), "claude".to_owned()))
+        );
+    }
+
+    #[test]
+    fn une_cible_absente_se_lit_comme_rien() {
+        let path = scratch("notarget").join(TARGET_FILE);
+        assert_eq!(read_target(&path), None);
+    }
+
+    #[test]
+    fn une_cible_illisible_se_lit_comme_rien() {
+        let dir = scratch("badtarget");
+        let path = dir.join(TARGET_FILE);
+        std::fs::write(&path, "pas de tabulation ici").unwrap();
+        assert_eq!(read_target(&path), None, "sans separateur, rien a lire");
+
+        std::fs::write(&path, "\tclaude").unwrap();
+        assert_eq!(read_target(&path), None, "un libelle vide ne designe rien");
+    }
+
+    /// La cible ne doit jamais atterrir dans le fichier de texte : celui-ci
+    /// reste du texte nu, lisible au `cat` (§8 du DESIGN).
+    #[test]
+    fn la_cible_vit_dans_son_propre_fichier() {
+        assert_ne!(TARGET_FILE, STATE_FILE);
     }
 }

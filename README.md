@@ -10,21 +10,51 @@ sauvegardé tout seul, en texte brut, et revient après un redémarrage.
 herdr plugin link .
 ```
 
-## Les quatre touches
+## Les touches
 
 | Touche | Bouton | Action |
 | --- | --- | --- |
+| `Ctrl+E` | `^E envoyer` | dépose le texte chez un agent, vide, et bascule dessus |
+| `Ctrl+N` | `→ claude·wdv` | agent suivant |
 | `Ctrl+C` | `^C copier` | copie tout vers le presse-papier de ta machine |
 | `Ctrl+L` | `^L vider` | vide, sans confirmation |
 | `Ctrl+S` | `^S fichier` | écrit `/tmp/herdr-scratchpad.txt` |
-| `Ctrl+Z` | `^Z annuler` | ramène le dernier contenu vidé |
+| `Ctrl+Z` | `^Z annuler` | ramène le dernier contenu vidé ou envoyé |
 
 Ce sont les combinaisons que tes doigts connaissent déjà, chacune à sa
-signification habituelle. Les quatre boutons de la barre du bas font la même
-chose au clic ou au doigt.
+signification habituelle. Les boutons de la barre du bas font la même chose au
+clic ou au doigt.
 
 Il n'y a **pas de touche pour quitter** : `prefix+a` referme le pane, geste
-symétrique de celui qui l'a ouvert.
+symétrique de celui qui l'a ouvert — et c'est aussi lui qui le rouvre depuis
+l'agent où `Ctrl+E` vient de te poser. Un `Ctrl+Q` sur un panneau qu'on veut
+permanent ne sert qu'à le fermer par erreur.
+
+## Envoyer à un agent
+
+`Ctrl+E` **dépose** le texte dans la boîte de saisie d'un agent herdr. Il ne
+l'envoie pas : **aucune Entrée n'est tapée**. Tu bascules sur l'agent, tu relis,
+tu soumets toi-même — ou tu effaces. Déposer chez un agent occupé est sans
+danger, le texte attend dans la boîte.
+
+Un prompt de dix lignes arrive comme **un seul collage**, pas ligne par ligne :
+herdr l'enveloppe dans un *bracketed paste*.
+
+Une fois le dépôt confirmé, le scratchpad se vide et **le focus passe sur
+l'agent** — tu atterris devant ton texte, prêt à le relire et à l'envoyer. Le
+vidage est un *déplacement*, pas une copie : `Ctrl+Z` le rattrape comme
+n'importe quel vidage, en revenant par `prefix+a`. **Si l'envoi échoue, rien
+n'est vidé et rien ne bascule** : c'est ce qui rend l'erreur sans conséquence.
+
+La destination est affichée en permanence à côté du bouton, `→ claude·wdv` :
+l'agent, puis le workspace. C'est le garde-fou, et il remplace toute
+confirmation — on ne doit jamais appuyer sans pouvoir lire où ça part. `Ctrl+N`
+ou un clic sur la zone passent à l'agent suivant.
+
+Par défaut la cible est l'agent de la **même tab que le pane** — celui d'où tu
+viens d'ouvrir le scratchpad. À défaut un agent du même workspace, à défaut la
+dernière cible utilisée, à défaut le premier venu. Sans agent du tout, la zone
+affiche `→ aucun agent` et le bouton refuse.
 
 ## Ouvrir
 

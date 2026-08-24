@@ -4,6 +4,7 @@
 //! drapeau, il répond à une question du script lanceur et sort — ce qui garde
 //! toute la logique de décision en Rust testable plutôt qu'en shell.
 
+mod agents;
 mod app;
 mod buffer;
 mod clipboard;
@@ -136,6 +137,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut app::App) -> io::Resul
         // le remplace en pleine frappe.
         app.maybe_flush();
         app.maybe_reload();
+        app.maybe_refresh_targets();
         app.heartbeat();
     }
 }

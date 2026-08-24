@@ -13,21 +13,57 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 use unicode_width::UnicodeWidthChar;
 
-use crate::app::Command;
-
-/// Les boutons de la barre du bas, dans l'ordre d'affichage.
-///
-/// Le destructif n'est pas au bord : les extrémités sont là où le pouce
-/// dérape sur un petit écran.
-pub const BUTTONS: [(Command, &str); 4] = [
-    (Command::Copy, "^C copier"),
-    (Command::Clear, "^L vider"),
-    (Command::Export, "^S fichier"),
-    (Command::Undo, "^Z annuler"),
-];
+use crate::agents::{self, Target};
+use crate::app::{Action, Command};
 
 /// Aide affichée quand le buffer est vide. Disparaît à la première frappe.
-const EMPTY_HINT: &str = "Colle ici. ^C copier · ^L vider · ^S fichier · ^Z annuler";
+const EMPTY_HINT: &str =
+    "Colle ici. ^E envoyer · ^C copier · ^L vider · ^S fichier · ^Z annuler";
+
+/// Part de la barre réservée à la zone cible, et son plancher.
+///
+/// La zone porte un libellé de longueur inconnue (un workspace peut s'appeler
+/// `herdr-scratchpad`). Sans budget, un libellé long ne tiendrait pas dans la
+/// barre et **tout ce qui le suit** disparaîtrait — la règle de rognage
+/// s'arrête au premier élément qui déborde. Le plancher laisse toujours passer
+/// `→ aucun agent`.
+const TARGET_SHARE: usize = 3;
+const TARGET_MIN_COLS: usize = 13;
+
+/// Largeur d'affichage d'une chaîne, en colonnes.
+fn columns(s: &str) -> usize {
+    s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum()
+}
+
+/// Une entrée de la barre du bas : ce qu'elle fait, ce qu'elle affiche, où.
+///
+/// Les trois voyagent **ensemble**. Le rendu et le test de survol lisent la
+/// même liste : un libellé ne peut donc pas se retrouver dessiné sur le
+/// rectangle d'une autre action, ce que deux tableaux parallèles finissaient
+/// toujours par produire.
+pub struct BarItem {
+    pub action: Action,
+    pub label: String,
+    pub rect: Rect,
+}
+
+/// Les entrées de la barre, dans l'ordre d'affichage.
+///
+/// `envoyer` et sa cible passent en tête : c'est la seule commande sortante du
+/// plugin, et sa destination doit être lisible avant qu'on appuie. Le
+/// destructif n'est toujours pas au bord — les extrémités sont là où le pouce
+/// dérape sur un petit écran.
+fn bar_labels(target: Option<&Target>, bar_width: usize) -> Vec<(Action, String)> {
+    let budget = (bar_width / TARGET_SHARE).max(TARGET_MIN_COLS);
+    vec![
+        (Action::Command(Command::Send), "^E envoyer".to_owned()),
+        (Action::CycleTarget, agents::label(target, budget)),
+        (Action::Command(Command::Copy), "^C copier".to_owned()),
+        (Action::Command(Command::Clear), "^L vider".to_owned()),
+        (Action::Command(Command::Export), "^S fichier".to_owned()),
+        (Action::Command(Command::Undo), "^Z annuler".to_owned()),
+    ]
+}
 
 /// Une ligne visuelle : un morceau d'une ligne logique, tel qu'il est affiché.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,29 +121,29 @@ pub fn cursor_visual_row(rows: &[VisualRow], cursor: (usize, usize)) -> usize {
         .unwrap_or(0)
 }
 
-/// Rectangles des boutons de la barre, dans l'ordre.
+/// Dispose la barre : les entrées qui tiennent, avec leur rectangle.
 ///
-/// Un bouton qui ne tient pas entièrement n'est **pas** enregistré : ratatui
-/// le rogne à l'écran, et un rectangle cliquable invisible serait un piège.
-pub fn button_rects(bar: Rect) -> Vec<(Command, Rect)> {
-    let mut out = Vec::with_capacity(BUTTONS.len());
+/// Une entrée qui ne tient pas entièrement n'est **pas** enregistrée, et rien
+/// n'est dessiné après elle : ratatui la rognerait à l'écran, et un rectangle
+/// cliquable invisible serait un piège. Comme la liste est ordonnée, ce sont
+/// les entrées de droite qui tombent d'abord — `^Z annuler` en premier, il a
+/// déjà sa touche.
+pub fn layout_bar(bar: Rect, target: Option<&Target>) -> Vec<BarItem> {
+    let labels = bar_labels(target, bar.width as usize);
+    let mut out = Vec::with_capacity(labels.len());
     let mut x = bar.x;
     let right = bar.x.saturating_add(bar.width);
 
-    for (command, label) in BUTTONS {
-        let w = label.chars().count() as u16;
+    for (action, label) in labels {
+        let w = columns(&label) as u16;
         if x.saturating_add(w) > right {
             break;
         }
-        out.push((
-            command,
-            Rect {
-                x,
-                y: bar.y,
-                width: w,
-                height: 1,
-            },
-        ));
+        out.push(BarItem {
+            action,
+            label,
+            rect: Rect { x, y: bar.y, width: w, height: 1 },
+        });
         // Une colonne de séparation, non cliquable.
         x = x.saturating_add(w).saturating_add(1);
     }
@@ -118,8 +154,8 @@ pub fn button_rects(bar: Rect) -> Vec<(Command, Rect)> {
 pub struct Geometry {
     /// Zone de texte.
     pub body: Rect,
-    /// Boutons effectivement dessinés.
-    pub buttons: Vec<(Command, Rect)>,
+    /// Entrées de barre effectivement dessinées.
+    pub buttons: Vec<(Action, Rect)>,
     /// Nombre total de lignes visuelles, pour borner le défilement.
     pub total_rows: usize,
 }
@@ -135,6 +171,7 @@ pub fn draw(
     scroll: &mut usize,
     status: Option<&str>,
     show_hint: bool,
+    target: Option<&Target>,
 ) -> Geometry {
     let area = frame.area();
 
@@ -192,20 +229,23 @@ pub fn draw(
         );
         Vec::new()
     } else {
-        let rects = button_rects(bar);
-        let mut spans = Vec::with_capacity(rects.len() * 2);
-        for (i, (_, rect)) in rects.iter().enumerate() {
+        let items = layout_bar(bar, target);
+        let mut spans = Vec::with_capacity(items.len() * 2);
+        for (i, item) in items.iter().enumerate() {
             if i > 0 {
                 spans.push(Span::raw(" "));
             }
-            spans.push(Span::styled(
-                BUTTONS[i].1,
-                Style::default().fg(Color::Black).bg(Color::Gray),
-            ));
-            let _ = rect;
+            // La zone cible se distingue du bouton d'envoi : l'une agit,
+            // l'autre informe — et c'est cet affichage qui tient lieu de
+            // garde-fou, faute de confirmation.
+            let style = match item.action {
+                Action::CycleTarget => Style::default().fg(Color::Black).bg(Color::Cyan),
+                Action::Command(_) => Style::default().fg(Color::Black).bg(Color::Gray),
+            };
+            spans.push(Span::styled(item.label.clone(), style));
         }
         frame.render_widget(Paragraph::new(Line::from(spans)), bar);
-        rects
+        items.into_iter().map(|i| (i.action, i.rect)).collect()
     };
 
     // Le curseur est posé à sa colonne d'affichage, pas à son index de
@@ -301,42 +341,99 @@ mod tests {
         assert_eq!(cursor_visual_row(&rows, (1, 0)), 1);
     }
 
+    fn target() -> Target {
+        Target {
+            pane_id: "w2:p1".into(),
+            agent: "claude".into(),
+            tab_id: "w2:t1".into(),
+            workspace_id: "w2".into(),
+            workspace_label: "wdv".into(),
+        }
+    }
+
+    fn bar(width: u16) -> Vec<BarItem> {
+        layout_bar(Rect { x: 0, y: 0, width, height: 1 }, Some(&target()))
+    }
+
     #[test]
     fn buttons_are_laid_out_left_to_right_without_overlap() {
-        let rects = button_rects(Rect { x: 0, y: 9, width: 80, height: 1 });
-        assert_eq!(rects.len(), 4);
-        for pair in rects.windows(2) {
-            let (_, a) = pair[0];
-            let (_, b) = pair[1];
-            assert!(a.x + a.width < b.x, "les boutons doivent être disjoints");
+        let items = layout_bar(Rect { x: 0, y: 9, width: 120, height: 1 }, Some(&target()));
+        assert_eq!(items.len(), 6);
+        for pair in items.windows(2) {
+            assert!(
+                pair[0].rect.x + pair[0].rect.width < pair[1].rect.x,
+                "les boutons doivent être disjoints"
+            );
         }
-        assert!(rects.iter().all(|(_, r)| r.y == 9 && r.height == 1));
+        assert!(items.iter().all(|i| i.rect.y == 9 && i.rect.height == 1));
     }
 
     /// Un bouton rogné par ratatui ne doit pas rester cliquable : on
     /// enregistrerait une cible invisible.
     #[test]
     fn buttons_that_do_not_fit_are_dropped() {
-        let rects = button_rects(Rect { x: 0, y: 0, width: 12, height: 1 });
-        assert_eq!(rects.len(), 1, "seul « ^C copier » (9) tient dans 12");
+        let items = bar(12);
+        assert_eq!(items.len(), 1, "seul « ^E envoyer » (10) tient dans 12");
 
-        let rects = button_rects(Rect { x: 0, y: 0, width: 3, height: 1 });
-        assert!(rects.is_empty());
+        assert!(bar(3).is_empty());
+    }
+
+    /// Le rectangle enregistré doit faire exactement la largeur du libellé
+    /// dessiné, sinon un clic tomberait à côté.
+    #[test]
+    fn each_rect_matches_the_width_of_its_own_label() {
+        for item in bar(120) {
+            assert_eq!(item.rect.width as usize, columns(&item.label), "{}", item.label);
+        }
     }
 
     #[test]
     fn buttons_respect_a_non_zero_origin() {
-        let rects = button_rects(Rect { x: 5, y: 0, width: 80, height: 1 });
-        assert_eq!(rects[0].1.x, 5);
+        let items = layout_bar(Rect { x: 5, y: 0, width: 120, height: 1 }, Some(&target()));
+        assert_eq!(items[0].rect.x, 5);
     }
 
     #[test]
     fn button_order_matches_the_declared_one() {
-        let rects = button_rects(Rect { x: 0, y: 0, width: 80, height: 1 });
-        let commands: Vec<_> = rects.iter().map(|(c, _)| *c).collect();
+        let actions: Vec<_> = bar(120).iter().map(|i| i.action).collect();
         assert_eq!(
-            commands,
-            vec![Command::Copy, Command::Clear, Command::Export, Command::Undo]
+            actions,
+            vec![
+                Action::Command(Command::Send),
+                Action::CycleTarget,
+                Action::Command(Command::Copy),
+                Action::Command(Command::Clear),
+                Action::Command(Command::Export),
+                Action::Command(Command::Undo),
+            ]
         );
+    }
+
+    /// Le rognage part de la droite : sur une barre serrée, `envoyer` et la
+    /// cible survivent — on ne doit jamais pouvoir envoyer sans lire où.
+    #[test]
+    fn send_and_its_target_survive_a_narrow_bar() {
+        let items = bar(24);
+        assert!(items.len() >= 2, "il reste {} entrée(s)", items.len());
+        assert_eq!(items[0].action, Action::Command(Command::Send));
+        assert_eq!(items[1].action, Action::CycleTarget);
+        assert!(items[1].label.contains("claude"));
+    }
+
+    /// Un libellé de workspace interminable ne doit pas emporter le reste de
+    /// la barre avec lui : la zone cible a un budget.
+    #[test]
+    fn a_very_long_workspace_label_does_not_eat_the_bar() {
+        let mut long = target();
+        long.workspace_label = "w".repeat(200);
+        let items = layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, Some(&long));
+        assert_eq!(items.len(), 6);
+    }
+
+    #[test]
+    fn the_bar_still_lays_out_without_a_target() {
+        let items = layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, None);
+        assert_eq!(items.len(), 6);
+        assert_eq!(items[1].label, agents::NO_TARGET);
     }
 }

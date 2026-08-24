@@ -19,7 +19,10 @@ cargo clippy --all-targets -- -D warnings
 Les trois au vert avant de livrer. La compilation initiale prend ~60 s sur un
 Raspberry Pi 4 ; les suivantes ~8 s.
 
-Pour essayer en vrai :
+Pour essayer en vrai — **fermer et rouvrir le pane après chaque
+`cargo build --release`** : un scratchpad déjà ouvert continue de tourner sur
+l'ancien binaire, et on teste alors le comportement qu'on vient de corriger
+(vérifiable par `ps -o lstart=` contre le mtime du binaire) :
 
 ```
 herdr plugin link .
@@ -34,12 +37,13 @@ herdr pane send-keys <pane_id> ctrl+s
 | --- | --- |
 | `src/main.rs` | deux vies du binaire : la TUI, ou un mode stdin→stdout pour le lanceur |
 | `src/app.rs` | état, touches, souris, horloges |
+| `src/agents.rs` | cibles d'envoi : croisement JSON, préférence, cyclage, libellé |
 | `src/buffer.rs` | texte et curseur, édition minimale |
 | `src/ui.rs` | rendu, repliage, géométrie des boutons |
 | `src/state.rs` | persistance texte brut, écriture atomique, surveillance mtime |
 | `src/clipboard.rs` | OSC 52 et base64 |
 | `src/launch.rs` | décisions du toggle, en fonctions pures |
-| `src/ipc.rs` | client socket minimal, uniquement pour l'estampille |
+| `src/ipc.rs` | client socket : estampille, `agent.list`, `workspace.list`, dépôt |
 | `scripts/open-scratchpad.sh` | enchaînement de commandes herdr, aucune décision |
 
 **Règle** : le script ne décide rien. Toute logique vit dans `launch.rs`, en
@@ -70,11 +74,52 @@ Les **actions** le reçoivent, les panes créés par `pane split` non. Sans
 ailleurs que le reste du plugin. Un `[[panes]]` déclaratif, lui, le reçoit
 nativement.
 
+En revanche `HERDR_PANE_ID`, `HERDR_TAB_ID` et `HERDR_WORKSPACE_ID` **sont**
+injectés dans tout pane que herdr crée, `pane split` compris (`herdr
+src/pane.rs:145`, vérifié dans `/proc/<pid>/environ` du pane). Ne pas les
+repasser en `--env` : ceux du lanceur désigneraient le pane *appelant*.
+
 ### `pane run` ne lance pas un processus
 
 Il **tape** la commande dans le shell du pane, suivie d'Entrée, **sans
 échappement** (`herdr src/cli/pane.rs:1047`). D'où le `exec "$bin"` : `exec`
 remplace le shell, donc le pane meurt avec la TUI.
+
+### La cible d'envoi par défaut se lit dans la **tab**
+
+`HERDR_WORKSPACE_ID` ne suffit pas : un workspace porte plusieurs tabs, donc
+plusieurs agents, et « l'agent du pane courant » est celui de la tab — le
+scratchpad naît d'un split du pane focalisé et hérite de sa tab. Le repli sur le
+workspace ne sert qu'au scratchpad seul dans sa tab.
+
+### `keys: []` dépose, il ne soumet pas
+
+`pane.send_input` écrit le texte dans la boîte de saisie du pane visé, puis tape
+les touches de `keys`. Une liste **vide** est donc tout le contrat de l'envoi
+(§14 du DESIGN) : le texte attend, l'utilisateur soumet lui-même. Ajouter
+`"Enter"` à cette liste changerait la fonctionnalité, pas son confort.
+
+`agent.prompt` fait l'inverse (il soumet) — ne pas le substituer « pour
+simplifier ».
+
+L'écriture est un **ajout au curseur**, pas un remplacement : ce que l'agent
+avait déjà dans sa boîte reste devant (`herdr src/app/api_helpers.rs:69`).
+
+### Le multiligne n'a pas besoin d'être découpé
+
+herdr enveloppe le texte dans un *bracketed paste* dès que le pane cible a
+activé `?2004h` (`herdr src/pane.rs:2858`), ce que fait Claude Code. Dix lignes
+arrivent comme **un seul collage** et ne se font pas soumettre à la première.
+
+Ne pas réintroduire de découpage ligne à ligne : ce serait exactement le bug
+qu'on croit corriger.
+
+### Une erreur socket arrive avec un transport parfaitement sain
+
+`{"id":…,"error":{"code":…,"message":…}}` sur la même connexion qu'un succès.
+D'où `ipc::error_of` : un envoi qui « marche » au niveau du tuyau peut avoir
+échoué, et c'est cet échec qui empêche le scratchpad de se vider. Le vérifier,
+pas le supposer.
 
 ### L'estampille doit tomber entre `split` et `run`
 
@@ -96,7 +141,14 @@ La valeur du jeton **doit être une chaîne** ; herdr rejette les nombres avec
 ### Pas de « focaliser tel pane »
 
 `herdr pane focus` est directionnel. Le cycle `pane zoom <id> --on` puis
-`--off` est le contournement.
+`--off` est le contournement — c'est celui du lanceur, qui n'a que la CLI.
+
+Depuis le socket, en revanche, `agent.focus` fait le travail en un appel quand
+la cible est un **agent** : il accepte le `pane_id` public et le résout en
+premier (`herdr src/app/terminal_targets.rs:79`), puis appelle
+`switch_workspace_tab` — donc il bascule tab et workspace au besoin
+(`src/app/agents.rs:75`). Passer le `pane_id` et non le nom : `claude` serait
+ambigu dès qu'il y a deux sessions.
 
 ### `pane close` tue sans signal
 
@@ -175,10 +227,14 @@ n'honorent que celui-là, et c'est la forme que herdr émet lui-même
 
 Ne pas ajouter sans rouvrir `DESIGN.md` :
 
-- readline (`Ctrl+A/E/K/W/U`) — ces lettres sont réservées aux commandes ;
+- readline (`Ctrl+A/E/K/W/U`) — ces lettres sont réservées aux commandes,
+  `Ctrl+E` est devenue « envoyer » ;
 - undo de frappe — `Ctrl+Z` appartient au rattrapage du vidage ;
 - confirmation au vidage — la case de secours est la réponse ;
 - markdown rendu, mode preview — c'est `herdr-notes` ;
 - cloisonnement par workspace — le buffer est global, c'est le point ;
 - touche pour quitter — `prefix+a` referme ;
+- confirmation à l'envoi — la cible affichée en permanence *est* le garde-fou ;
+- traitement du cas « agent occupé » — sans objet quand on dépose sans soumettre ;
+- garde-fou de taille à l'envoi — le plafond est 1 Mo, inatteignable ;
 - Windows — intestable depuis un Pi headless.

@@ -63,15 +63,21 @@ terminal n'en fasse des signaux : ils arrivent au pane comme des touches.
 
 | Touche | Action |
 | --- | --- |
+| `Ctrl+E` | envoyer à un agent (§14) |
+| `Ctrl+N` | agent suivant (§14) |
 | `Ctrl+C` | copier tout |
 | `Ctrl+L` | vider |
 | `Ctrl+S` | exporter dans un fichier |
 | `Ctrl+Z` | rattraper le dernier vidage |
 
-Ce sont les quatre combinaisons que tout le monde connaît déjà, chacune à sa
-signification habituelle : copier, effacer l'écran, sauvegarder, annuler. Rien à
-mémoriser. Seule bizarrerie assumée : `Ctrl+C` n'interrompt plus — mais dans un
-scratchpad il n'y a rien à interrompre.
+Les quatre dernières sont les combinaisons que tout le monde connaît déjà,
+chacune à sa signification habituelle : copier, effacer l'écran, sauvegarder,
+annuler. Rien à mémoriser. Seule bizarrerie assumée : `Ctrl+C` n'interrompt plus
+— mais dans un scratchpad il n'y a rien à interrompre.
+
+`Ctrl+E` et `Ctrl+N` sont arrivés plus tard (§14) et n'ont pas cette évidence :
+`E` pour *envoyer*, `N` pour *next*. Elles étaient libres précisément parce que
+§4 refuse le readline.
 
 **Aucune touche pour quitter.** `prefix+a` referme le pane, geste symétrique de
 celui qui l'a ouvert. Un `Ctrl+Q` sur un panneau qu'on veut permanent ne sert
@@ -84,11 +90,13 @@ d'autre.
 
 **Pas de readline/emacs** (`Ctrl+A`, `Ctrl+E`, `Ctrl+K`, `Ctrl+W`, `Ctrl+U`) :
 ces lettres sont plus utiles aux commandes quotidiennes qu'à un confort
-d'édition fine qu'on utilise une fois par mois. Quand un texte mérite vraiment
+d'édition fine qu'on utilise une fois par mois. Le pari s'est vérifié : `Ctrl+E`
+est devenu « envoyer » (§14). Quand un texte mérite vraiment
 d'être édité, sa place est dans un éditeur, pas dans le pane de transit.
 
 Corollaire : **pas d'undo de frappe**. `Ctrl+Z` est entièrement réservé au
-rattrapage du vidage (§7).
+rattrapage du vidage (§7) — et à celui de l'envoi, qui emprunte le même chemin
+(§14.2).
 
 ### Souris
 
@@ -113,7 +121,7 @@ argument.
 Barre du bas cliquable, une seule ligne :
 
 ```
-[^C copier] [^L vider] [^S fichier] [^Z annuler]
+[^E envoyer] [→ claude·wdv] [^C copier] [^L vider] [^S fichier] [^Z annuler]
 ```
 
 Le destructif n'est pas au bord, là où le pouce dérape.
@@ -156,7 +164,8 @@ mélangerait les retours du scratchpad aux notifications des agents.
 ## 7. Vider
 
 Immédiat, **sans confirmation**. L'ancien contenu part dans une case de secours
-à **une seule place** ; `Ctrl+Z` le ramène.
+à **une seule place** ; `Ctrl+Z` le ramène. L'envoi (§14) réutilise exactement
+ce chemin.
 
 Vider est la moitié du métier d'un outil de transit : ça doit coûter une frappe.
 Une confirmation y remettrait exactement le mode modal chassé partout ailleurs.
@@ -254,6 +263,138 @@ Sans branche de conception à ouvrir dessus :
 3. Texte d'aide quand le buffer est vide, qui disparaît à la première frappe.
 4. Autosave ~500 ms (§8).
 5. Repli sur le répertoire de config de la plateforme hors herdr (§8).
+
+## 14. Envoyer à l'agent
+
+> Ajout du 2026-08-24, même méthode : décisions posées une par une avant la
+> première ligne de code.
+
+Un bouton `[^E envoyer]` et une zone `[→ claude·wdv]` en tête de la barre du
+bas. Le texte du scratchpad est **déposé** dans la boîte de saisie d'un agent
+herdr, puis le scratchpad se vide dans sa case de secours.
+
+C'est la suite naturelle du canal bidirectionnel (§8) : le fichier d'état donne
+déjà « un agent lit ce que j'ai collé », il manquait « cet agent-là, maintenant,
+sans que j'aille moi-même chercher son pane ».
+
+### 14.1 Déposer, pas soumettre
+
+`pane.send_input` avec `keys: []`. Le texte atterrit dans le champ de saisie ;
+**aucune Entrée n'est envoyée**. L'utilisateur bascule, relit, soumet lui-même.
+
+`agent.prompt` existe et soumettrait directement. Il est **écarté délibérément** :
+déposer rend l'envoi réversible côté agent, et c'est le seul garde-fou qui
+survit à une erreur de cible.
+
+Effet de bord bienvenu : déposer chez un agent **occupé** est inoffensif, le
+texte attend dans la boîte. Il n'y a donc aucun cas « agent en train de
+travailler » à traiter — ce qui supprime tout un pan de logique.
+
+Le multiligne est sûr sans découpage : herdr enveloppe le texte dans un
+*bracketed paste* dès que le pane a activé `?2004h` (`src/pane.rs:2858`), ce que
+fait Claude Code. Un prompt de dix lignes arrive comme **un seul collage** et ne
+se fait pas soumettre à la première ligne. C'était le risque principal de la
+fonctionnalité ; il n'existe pas.
+
+### 14.2 Le scratchpad se vide après un dépôt réussi
+
+Même chemin que `Ctrl+L` : le texte part dans la case de secours à une place,
+`Ctrl+Z` le rattrape. Le dépôt est un *déplacement*, pas une copie — un outil de
+transit dont le contenu survit à son usage se transforme en carnet par
+accumulation, ce que §1 refuse.
+
+**En cas d'échec, on ne vide pas.** C'est ce qui rend l'erreur sans conséquence,
+et donc ce qui autorise l'absence de confirmation.
+
+### 14.3 La cible est affichée en permanence
+
+C'est le garde-fou principal, et il remplace toute confirmation modale — le
+plugin n'a aucun mode (§1) et n'en gagne pas ici.
+
+« Envoyer » est la seule commande **sortante** : les quatre autres restent chez
+l'utilisateur, celle-ci démarre du travail ailleurs. Un bouton dont on ne peut
+pas lire la destination avant d'appuyer est un piège, surtout avec plusieurs
+agents `claude` que rien ne distingue.
+
+Libellé `→ <agent>·<label du workspace>`. Quand la barre est serrée, le
+workspace tombe **entier** avant que le nom de l'agent ne soit entamé : un
+`→ claude·herdr-scr` tronqué désignerait aussi bien un autre workspace
+commençant pareil.
+
+### 14.4 Choix de la cible par défaut
+
+1. l'agent de la **même tab que ce pane** (`HERDR_TAB_ID`) ;
+2. sinon l'agent du **même workspace** (`HERDR_WORKSPACE_ID`) ;
+3. sinon la **dernière cible utilisée**, mémorisée sur disque ;
+4. sinon le **premier agent disponible** ;
+5. sinon aucune : `→ aucun agent`, et le bouton refuse au clic.
+
+> **Correction du 2026-08-24, au test en vrai.** La règle s'arrêtait d'abord au
+> workspace. C'était insuffisant : un workspace porte plusieurs tabs, donc
+> plusieurs agents, et c'est le *voisin* qui sortait — pas celui qu'on
+> regardait. « L'agent du pane courant » se lit dans la **tab**, parce que le
+> scratchpad naît d'un split du pane focalisé et hérite donc de sa tab.
+
+Le repli sur le workspace reste utile : un scratchpad **seul dans sa tab** n'a
+aucun agent chez lui (§3 prévoit déjà ce cas pour la fermeture).
+
+### 14.5 Cyclage
+
+Clic sur la zone cible, **ou** `Ctrl+N`. Les deux voies existent parce que la
+barre existe pour être utilisable au doigt sur petit écran : une commande
+dangereuse ne doit pas être la seule à exiger le clavier.
+
+`Tab` a été écarté : dans une zone de texte il doit insérer une tabulation, et
+un scratchpad qui mange les tabulations d'un bloc de code collé trahit sa
+fonction.
+
+### 14.6 Fraîcheur de la cible
+
+Rafraîchissement de l'affichage toutes les **2,5 s**, et **revérification au
+moment de l'envoi**. Si la cible affichée a disparu → message, rien n'est envoyé,
+rien n'est vidé — et surtout, on ne se rabat **pas** sur une autre cible : ce
+serait envoyer ailleurs que ce que l'utilisateur a lu.
+
+L'affichage n'a besoin d'être qu'à peu près à jour ; l'action doit être
+exactement juste.
+
+### 14.7 La mémoire de la cible n'est pas dans `scratchpad.txt`
+
+Ce fichier reste du **texte nu** : c'est tout le contrat du canal
+bidirectionnel (§8). La dernière cible va dans un fichier voisin `target.txt`.
+
+Contenu : `<label du workspace>\t<agent>` — **pas** le `pane_id`, qui ne survit
+pas à un redémarrage de herdr. La résolution au démarrage re-cherche un agent
+correspondant à cette paire.
+
+### 14.9 Le focus suit le texte
+
+Un dépôt réussi **bascule sur l'agent** qui vient de recevoir (`agent.focus`,
+qui change tab *et* workspace au besoin — `herdr src/app/agents.rs:75`).
+
+C'est la fin du geste annoncé en §14.1 : déposer, relire, soumettre. Sans la
+bascule, la troisième étape commence par « retrouver le pane soi-même », c'est-à-
+dire exactement le travail que le bouton devait épargner.
+
+Le focus va au pane qui a **effectivement** reçu, pas à celui que l'affichage
+montrait : c'est la cible re-résolue de §14.6.
+
+Un échec de bascule est avalé — le texte est déjà parti, et rater le focus ne
+doit pas transformer un envoi réussi en message d'erreur. Un envoi qui échoue,
+lui, ne bascule pas du tout : le texte est encore sous les yeux.
+
+Ce que ça coûte, assumé : le `^Z` du dépôt n'est plus à une touche, il faut
+revenir par `prefix+a`. La case de secours, elle, survit intacte. Les variantes
+« basculer seulement dans la même tab » et « deux touches, une par sens » ont
+été écartées : la première rend le comportement conditionnel donc imprévisible
+(le plugin n'a aucun mode, §1), la seconde ajoute une touche et un bouton pour
+un choix qu'on fait toujours dans le même sens.
+
+### 14.8 Pas de garde-fou de taille
+
+`MAX_INPUT_PAYLOAD` vaut 1 Mo (`herdr src/server/client_transport.rs:41`), cinq
+fois le plafond presse-papier de §5. Inatteignable pour un prompt : ajouter un
+seuil ici serait du code qui ne s'exécute jamais.
 
 ## Annexe — code de référence local
 
