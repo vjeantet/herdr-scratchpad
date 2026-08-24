@@ -65,9 +65,14 @@ pub struct BarItem {
 /// Les commandes **fixes** à gauche, les éléments **variables** à droite. La
 /// liste d'agents est rafraîchie toutes les deux secondes et demie : `^E` et
 /// la zone cible apparaissent et disparaissent tout seuls, au gré des agents
-/// qui démarrent et s'arrêtent. À gauche, ils décaleraient `^C`, `^L`, `^S` et
-/// `^Z` pendant que le doigt descend vers eux ; à droite, ces quatre-là ne
-/// bougent **jamais** — ni selon les agents, ni selon la largeur.
+/// qui démarrent et s'arrêtent. À gauche, ils décaleraient `^C`, `^L` et `^Z`
+/// pendant que le doigt descend vers eux ; à droite, ces trois-là ne bougent
+/// **jamais** — ni selon les agents, ni selon la largeur.
+///
+/// `^S fichier` n'a **pas** de bouton : c'est la seule commande dont le
+/// résultat n'est ni à l'écran ni dans le presse-papier mais dans un fichier
+/// qu'on ira lire ailleurs — donc jamais au milieu d'un geste au doigt. La
+/// touche reste, et l'aide du buffer vide l'enseigne.
 ///
 /// Corollaire assumé : le rognage partant toujours de la droite, ce sont la
 /// cible puis `^E` qui tombent d'abord sur une barre étroite. La cible est
@@ -76,7 +81,6 @@ fn bar_labels(targets: Targets, bar_width: usize) -> Vec<(Action, String)> {
     let mut out = vec![
         (Action::Command(Command::Copy), "^C copier".to_owned()),
         (Action::Command(Command::Clear), "^L vider".to_owned()),
-        (Action::Command(Command::Export), "^S fichier".to_owned()),
         (Action::Command(Command::Undo), "^Z annuler".to_owned()),
     ];
     // Sans agent dans la tab, il n'y a rien à quoi parler : le bouton
@@ -395,7 +399,7 @@ mod tests {
             .collect()
     }
 
-    /// Les rectangles des quatre commandes fixes, pour un nombre d'agents donné.
+    /// Les rectangles des trois commandes fixes, pour un nombre d'agents donné.
     fn fixed_rects(target_count: usize) -> Vec<Rect> {
         let t = target("claude", "w2:p1");
         layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&t, target_count))
@@ -405,7 +409,6 @@ mod tests {
                     i.action,
                     Action::Command(Command::Copy)
                         | Action::Command(Command::Clear)
-                        | Action::Command(Command::Export)
                         | Action::Command(Command::Undo)
                 )
             })
@@ -417,7 +420,7 @@ mod tests {
     fn buttons_are_laid_out_left_to_right_without_overlap() {
         let t = target("claude", "w2:p1");
         let items = layout_bar(Rect { x: 0, y: 9, width: 120, height: 1 }, view(&t, 2));
-        assert_eq!(items.len(), 6);
+        assert_eq!(items.len(), 5);
         for pair in items.windows(2) {
             assert!(
                 pair[0].rect.x + pair[0].rect.width < pair[1].rect.x,
@@ -460,7 +463,6 @@ mod tests {
             vec![
                 Action::Command(Command::Copy),
                 Action::Command(Command::Clear),
-                Action::Command(Command::Export),
                 Action::Command(Command::Undo),
                 Action::Command(Command::Send),
                 Action::CycleTarget,
@@ -477,7 +479,6 @@ mod tests {
             vec![
                 Action::Command(Command::Copy),
                 Action::Command(Command::Clear),
-                Action::Command(Command::Export),
                 Action::Command(Command::Undo),
             ]
         );
@@ -491,7 +492,6 @@ mod tests {
             vec![
                 Action::Command(Command::Copy),
                 Action::Command(Command::Clear),
-                Action::Command(Command::Export),
                 Action::Command(Command::Undo),
                 Action::Command(Command::Send),
             ]
@@ -521,9 +521,22 @@ mod tests {
         assert!(actions.starts_with(&[
             Action::Command(Command::Copy),
             Action::Command(Command::Clear),
-            Action::Command(Command::Export),
+            Action::Command(Command::Undo),
         ]));
         assert!(!actions.contains(&Action::CycleTarget), "la zone tombe la première");
+    }
+
+    /// `Ctrl+S` garde sa touche et sa fonction, mais pas de bouton : son
+    /// résultat est un fichier qu'on ira lire ailleurs, jamais au milieu d'un
+    /// geste au doigt.
+    #[test]
+    fn l_export_n_a_de_bouton_dans_aucune_des_trois_formes() {
+        for count in 0..=2 {
+            assert!(
+                !actions(count).contains(&Action::Command(Command::Export)),
+                "{count} agent(s)"
+            );
+        }
     }
 
     /// Un nom d'agent interminable ne doit pas emporter le reste de la barre
@@ -532,7 +545,7 @@ mod tests {
     fn un_nom_d_agent_interminable_ne_mange_pas_la_barre() {
         let long = target(&"a".repeat(200), "w2:p1");
         let items = layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&long, 2));
-        assert_eq!(items.len(), 6);
+        assert_eq!(items.len(), 5);
     }
 
     /// Deux agents annoncés mais aucune cible retenue : la barre ne doit pas
@@ -543,7 +556,7 @@ mod tests {
             Rect { x: 0, y: 0, width: 120, height: 1 },
             Targets { current: None, count: 2 },
         );
-        assert_eq!(items.len(), 5);
+        assert_eq!(items.len(), 4);
         assert!(!items.iter().any(|i| i.action == Action::CycleTarget));
     }
 }

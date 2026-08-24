@@ -129,10 +129,17 @@ argument.
 Barre du bas cliquable, une seule ligne :
 
 ```
-[^E envoyer] [→ claude·wdv] [^C copier] [^L vider] [^S fichier] [^Z annuler]
+[^C copier] [^L vider] [^Z annuler] [^E envoyer] [→ claude·p3]
 ```
 
-Le destructif n'est pas au bord, là où le pouce dérape.
+Le destructif n'est pas au bord, là où le pouce dérape. L'ordre est celui de
+§14.3 : les commandes fixes d'abord, ce qui dépend des agents ensuite.
+
+`Ctrl+S` n'a **pas** de bouton, et c'est la seule commande dans ce cas. Toutes
+les autres rendent quelque chose qu'on veut sur-le-champ — le texte à l'écran,
+dans le presse-papier, chez un agent. L'export, lui, dépose un fichier qu'on
+ira lire ailleurs, plus tard : ce n'est pas un geste au doigt. La touche et la
+fonction restent entières, et l'aide du buffer vide continue de l'enseigner.
 
 ## 5. Copier
 
@@ -396,15 +403,18 @@ qui n'existe que pour refuser est du bruit.
 **Ordre de la barre** : les commandes fixes à gauche, le variable à droite.
 
 ```
-0 agent    ^C copier · ^L vider · ^S fichier · ^Z annuler
-1 agent    ^C copier · ^L vider · ^S fichier · ^Z annuler · ^E envoyer
-2 agents   ^C copier · ^L vider · ^S fichier · ^Z annuler · ^E envoyer · → claude·p3
+0 agent    ^C copier · ^L vider · ^Z annuler
+1 agent    ^C copier · ^L vider · ^Z annuler · ^E envoyer
+2 agents   ^C copier · ^L vider · ^Z annuler · ^E envoyer · → claude·p3
 ```
+
+`^S fichier` ne figure dans aucune des trois : il n'a plus de bouton (§4), sa
+touche et sa fonction sont intactes.
 
 La liste d'agents est rafraîchie toutes les 2,5 s : `^E` et la zone
 apparaissent et disparaissent tout seuls. À gauche, ils décaleraient `^C`,
-`^L`, `^S` et `^Z` pendant que le doigt descend vers eux ; à droite, ces
-quatre-là ne bougent **jamais**. Corollaire assumé : le rognage partant
+`^L` et `^Z` pendant que le doigt descend vers eux ; à droite, ces trois-là ne
+bougent **jamais**. Corollaire assumé : le rognage partant
 toujours de la droite, ce sont la cible puis `^E` qui tombent d'abord sur une
 barre étroite — `Ctrl+E` reste au clavier, et la destination est maintenant
 locale à la tab.

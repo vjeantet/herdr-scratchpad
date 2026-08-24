@@ -22,12 +22,13 @@ herdr plugin link .
 | `Ctrl+N` | `→ claude·p3` | agent suivant de la tab (à partir de deux) |
 | `Ctrl+C` | `^C copier` | copie tout vers le presse-papier de ta machine |
 | `Ctrl+L` | `^L vider` | vide, sans confirmation |
-| `Ctrl+S` | `^S fichier` | écrit `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` |
+| `Ctrl+S` | — | écrit `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` |
 | `Ctrl+Z` | `^Z annuler` | ramène le dernier contenu vidé ou envoyé |
 
 Ce sont les combinaisons que tes doigts connaissent déjà, chacune à sa
 signification habituelle. Les boutons de la barre du bas font la même chose au
-clic ou au doigt.
+clic ou au doigt — sauf `Ctrl+S`, qui n'a pas de bouton : il dépose un fichier
+qu'on ira lire ailleurs, ce n'est pas un geste au doigt.
 
 Il n'y a **pas de touche pour quitter** : `prefix+a` referme le pane, geste
 symétrique de celui qui l'a ouvert — et c'est aussi lui qui le rouvre depuis
