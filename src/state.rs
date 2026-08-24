@@ -1,4 +1,4 @@
-//! Persistance : `scratchpad.txt`, en texte brut.
+//! Persistance : `scratchpad-<tab_id>.txt`, en texte brut.
 //!
 //! Le fichier d'état *est* le texte. Pas de JSON : sans mode ni métadonnée à
 //! ranger à côté, il ne servirait qu'à échapper le contenu et à le rendre
@@ -7,19 +7,30 @@
 //! C'est ce qui fait du scratchpad un canal bidirectionnel : on écrit dans le
 //! pane, un agent lit le fichier ; un agent écrit le fichier, le pane se
 //! recharge (cf. [`Store::reload_if_changed`]).
+//!
+//! Le nom porte le `tab_id` : un buffer par tab, pas un buffer global (§8, §9
+//! du DESIGN). L'agent compose le chemin lui-même, `HERDR_TAB_ID` étant
+//! injecté dans son pane comme dans le nôtre.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-/// Nom du fichier d'état. Unique et global : le buffer n'est pas cloisonné par
-/// workspace, contrairement à `herdr-notes`.
+/// Nom du fichier d'état **sans clé de tab**.
+///
+/// Hors herdr il n'y a pas de `HERDR_TAB_ID`, donc pas de clé : le binaire
+/// doit rester utilisable à la main, il retombe sur ce nom nu (§3.4 du plan).
+/// C'est aussi le nom de l'ancien buffer global, que [`purge_legacy`] efface
+/// — mais dans le state dir de herdr **seulement**.
 const STATE_FILE: &str = "scratchpad.txt";
 
-/// Nom du fichier qui retient la dernière cible d'envoi.
+/// Préfixe et suffixe des buffers cloisonnés : `scratchpad-w1:t2.txt`.
+const PREFIX: &str = "scratchpad-";
+const SUFFIX: &str = ".txt";
+
+/// Vestige de l'époque où la cible d'envoi se mémorisait sur disque.
 ///
-/// Un fichier **voisin**, et non une ligne dans `scratchpad.txt` : celui-ci
-/// doit rester du texte nu, c'est tout le contrat du canal bidirectionnel
-/// (§8 du DESIGN).
+/// La cible est maintenant locale à la tab et se déduit de `agent.list` : il
+/// n'y a plus rien à retenir. Le nom ne survit que pour être supprimé.
 const TARGET_FILE: &str = "target.txt";
 
 /// Emplacement du fichier d'état.
@@ -31,15 +42,40 @@ pub struct Store {
     seen: Option<SystemTime>,
 }
 
-/// Répertoire d'état fourni par herdr, ou repli sur le répertoire de config.
+/// Le state dir fourni par herdr, s'il y en a un.
 ///
-/// Hors herdr (`HERDR_PLUGIN_STATE_DIR` absent), le pane doit rester
-/// utilisable : on tombe sur `<config>/herdr/scratchpad/`.
-fn state_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("HERDR_PLUGIN_STATE_DIR").filter(|d| !d.is_empty()) {
-        return Some(PathBuf::from(dir));
-    }
+/// Public parce que la purge des vestiges y est confinée : l'ancien buffer
+/// global n'a jamais existé ailleurs (§3.5 du plan).
+pub fn herdr_state_dir() -> Option<PathBuf> {
+    std::env::var_os("HERDR_PLUGIN_STATE_DIR")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Répertoire de repli, hors herdr : `<config>/herdr/scratchpad/`.
+fn fallback_dir() -> Option<PathBuf> {
     config_dir().map(|base| base.join("herdr").join("scratchpad"))
+}
+
+/// Répertoire d'état fourni par herdr, ou repli sur le répertoire de config.
+fn state_dir() -> Option<PathBuf> {
+    herdr_state_dir().or_else(fallback_dir)
+}
+
+/// Les répertoires susceptibles de contenir des buffers : celui de herdr et
+/// le repli. Sans doublon — hors herdr, les deux se confondent.
+///
+/// C'est la liste que balaie le ménage des orphelins (§3.6 du plan) : un
+/// buffer écrit dans le repli avant que le plugin ne soit installé y reste
+/// sinon indéfiniment.
+pub fn state_dirs() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for dir in [herdr_state_dir(), fallback_dir()].into_iter().flatten() {
+        if !out.contains(&dir) {
+            out.push(dir);
+        }
+    }
+    out
 }
 
 fn config_dir() -> Option<PathBuf> {
@@ -56,16 +92,40 @@ fn mtime(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).ok()?.modified().ok()
 }
 
+/// Nom du fichier de `tab_id`, ou nom nu quand il n'y a pas de tab.
+fn file_name(tab_id: Option<&str>) -> String {
+    match tab_id {
+        Some(id) => format!("{PREFIX}{id}{SUFFIX}"),
+        None => STATE_FILE.to_owned(),
+    }
+}
+
+/// Le `tab_id` que porte un nom de fichier, s'il en porte un.
+///
+/// `scratchpad.txt` rend `None` : le buffer sans clé n'est jamais candidat au
+/// ménage. Les temporaires d'écriture (`scratchpad-w1:t1.tmp.42`) non plus,
+/// faute du suffixe.
+fn tab_id_of(name: &str) -> Option<&str> {
+    name.strip_prefix(PREFIX)?
+        .strip_suffix(SUFFIX)
+        .filter(|id| !id.is_empty())
+}
+
 impl Store {
-    /// Résout l'emplacement depuis l'environnement.
-    pub fn from_env() -> Option<Self> {
-        Some(Self::at(state_dir()?.join(STATE_FILE)))
+    /// Résout l'emplacement depuis l'environnement, pour la tab donnée.
+    pub fn from_env(tab_id: Option<&str>) -> Option<Self> {
+        Some(Self::at(state_dir()?.join(file_name(tab_id))))
     }
 
     /// Emplacement explicite — utilisé par les tests, qui ne doivent jamais
     /// dépendre de l'environnement réel.
     pub fn at(path: PathBuf) -> Self {
         Self { path, seen: None }
+    }
+
+    /// Le fichier de ce store. Le ménage s'en sert pour ne pas se supprimer.
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     /// Lit le texte. Un fichier absent ou illisible rend une chaîne vide.
@@ -85,9 +145,10 @@ impl Store {
     /// un fichier vide que le chargement indulgent transformerait en buffer
     /// vide — c'est-à-dire une perte silencieuse.
     ///
-    /// Le nom du temporaire porte le **pid** : le design autorise plusieurs
-    /// panes ouverts (§9), donc plusieurs écrivains sur ce même fichier. Un
-    /// nom fixe les ferait se piétiner.
+    /// Le nom du temporaire porte le **pid**. Depuis le cloisonnement par tab,
+    /// deux écrivains sur un même fichier ne devraient plus exister ; la
+    /// ceinture ne coûte rien et couvre encore le repli sans clé, où plusieurs
+    /// binaires lancés à la main partagent bien un fichier.
     pub fn save(&mut self, text: &str) -> std::io::Result<()> {
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -137,59 +198,80 @@ impl Store {
     }
 }
 
-/// Dernière cible d'envoi mémorisée : *(libellé de workspace, agent)*.
+/// Supprime dans `dir` les vestiges du buffer global : le `scratchpad.txt`
+/// **et** le `target.txt`.
 ///
-/// Volontairement **pas** un `pane_id` : celui-ci ne survit pas à un
-/// redémarrage de herdr, alors que cette paire se retrouve dans un
-/// `agent.list` neuf.
-pub fn load_target() -> Option<(String, String)> {
-    read_target(&state_dir()?.join(TARGET_FILE))
+/// Sèchement, sans sauvegarde ni migration : adopter l'ancien texte dans une
+/// tab choisie arbitrairement recréerait exactement la surprise que le
+/// cloisonnement supprime (§3.5 du plan).
+///
+/// À n'appeler que sur le **state dir de herdr**. Dans le répertoire de repli,
+/// `scratchpad.txt` n'est pas un vestige : c'est le buffer d'un binaire lancé
+/// à la main (§3.4) — voir [`purge_legacy_target`].
+///
+/// Idempotent et muet : une corvée ratée n'a rien à dire.
+pub fn purge_legacy(dir: &Path) {
+    let _ = std::fs::remove_file(dir.join(STATE_FILE));
+    purge_legacy_target(dir);
 }
 
-/// Retient la cible. Un échec est silencieux : perdre cette mémoire ne coûte
-/// qu'un cyclage de plus au prochain démarrage.
-pub fn save_target(workspace_label: &str, agent: &str) {
-    // Le séparateur est une tabulation : un libellé qui en contiendrait une
-    // rendrait le fichier ambigu, on préfère ne rien écrire.
-    if [workspace_label, agent]
-        .iter()
-        .any(|s| s.is_empty() || s.contains('\t') || s.contains('\n'))
-    {
+/// Supprime le seul `target.txt` de `dir`.
+///
+/// Il y en a un dans chacun des deux répertoires sur la machine de référence,
+/// et aucun des deux ne sert plus à rien.
+pub fn purge_legacy_target(dir: &Path) {
+    let _ = std::fs::remove_file(dir.join(TARGET_FILE));
+}
+
+/// Supprime dans `dir` les buffers dont la tab n'existe plus.
+///
+/// Les numéros de tab publics ne sont **jamais réutilisés** (vérifié dans
+/// `herdr src/workspace.rs:1593`), donc un fichier dont la tab manque est
+/// orphelin définitivement : aucune tab neuve n'héritera de son texte.
+///
+/// `live_tab_ids` arrive **déjà validée** : c'est l'appelant qui s'abstient
+/// quand `tab.list` échoue ou répond une liste vide — une liste vide n'est
+/// jamais une information, c'est une panne. Garder cette fonction bête est ce
+/// qui la rend testable sans socket.
+///
+/// `own` n'est jamais supprimé, même si sa tab manquait de la liste.
+pub fn sweep_orphans(dir: &Path, live_tab_ids: &[String], own: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return;
-    }
-    if let Some(dir) = state_dir() {
-        let _ = write_target(&dir.join(TARGET_FILE), workspace_label, agent);
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == own {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(tab_id) = name.to_str().and_then(tab_id_of) else {
+            continue;
+        };
+        if !live_tab_ids.iter().any(|live| live == tab_id) {
+            let _ = std::fs::remove_file(&path);
+        }
     }
 }
 
-fn read_target(path: &Path) -> Option<(String, String)> {
-    let raw = std::fs::read_to_string(path).ok()?;
-    let (label, agent) = raw.trim_end_matches('\n').split_once('\t')?;
-    if label.is_empty() || agent.is_empty() {
-        return None;
-    }
-    Some((label.to_owned(), agent.to_owned()))
-}
-
-/// Même écriture atomique que l'état : deux panes peuvent mémoriser en même
-/// temps, et le temporaire porte déjà le pid.
-fn write_target(path: &Path, workspace_label: &str, agent: &str) -> std::io::Result<()> {
-    Store::at(path.to_owned()).save(&format!("{workspace_label}\t{agent}"))
-}
-
-/// Chemin de l'instantané d'export.
+/// Chemin de l'instantané d'export, cloisonné lui aussi.
 ///
-/// Fixe et écrasé : c'est une **adresse**, que les scripts et les agents
-/// peuvent lire sans qu'on la leur donne. `/tmp` est vidé au reboot, sans
-/// importance — la vraie persistance est le fichier d'état.
-pub fn export_path() -> PathBuf {
-    std::env::temp_dir().join("herdr-scratchpad.txt")
+/// C'est une **adresse** que les scripts et les agents composent sans qu'on la
+/// leur donne — d'où le `tab_id`, qu'ils ont dans leur environnement. Un
+/// chemin fixe ferait écraser silencieusement l'instantané d'une autre tab, au
+/// seul endroit que personne ne surveille (§3.10 du plan).
+pub fn export_path(tab_id: Option<&str>) -> PathBuf {
+    let name = match tab_id {
+        Some(id) => format!("herdr-scratchpad-{id}.txt"),
+        None => "herdr-scratchpad.txt".to_owned(),
+    };
+    std::env::temp_dir().join(name)
 }
 
 /// Écrit l'instantané. Même atomicité que l'état : un agent peut être en train
 /// de le lire.
-pub fn export(text: &str) -> std::io::Result<PathBuf> {
-    let path = export_path();
+pub fn export(text: &str, tab_id: Option<&str>) -> std::io::Result<PathBuf> {
+    let path = export_path(tab_id);
     let mut store = Store::at(path.clone());
     store.save(text)?;
     Ok(path)
@@ -205,6 +287,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// Un fichier vide, juste pour le voir survivre ou disparaître.
+    fn touch(path: &Path) {
+        std::fs::write(path, "").unwrap();
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut out: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        out.sort();
+        out
     }
 
     #[test]
@@ -245,12 +342,7 @@ mod tests {
         let mut store = Store::at(dir.join(STATE_FILE));
         store.save("x").unwrap();
 
-        let leftovers: Vec<_> = std::fs::read_dir(&dir)
-            .unwrap()
-            .filter_map(Result::ok)
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|n| n.contains("tmp"))
-            .collect();
+        let leftovers: Vec<_> = names(&dir).into_iter().filter(|n| n.contains("tmp")).collect();
         assert!(leftovers.is_empty(), "temporaires restants : {leftovers:?}");
     }
 
@@ -304,42 +396,133 @@ mod tests {
         assert_eq!(store.reload_if_changed().as_deref(), Some(""));
     }
 
+    // -- la clé de tab ----------------------------------------------------
+
     #[test]
-    fn export_path_is_stable_across_calls() {
-        assert_eq!(export_path(), export_path());
-        assert!(export_path().ends_with("herdr-scratchpad.txt"));
+    fn le_nom_du_fichier_porte_le_tab_id() {
+        assert_eq!(file_name(Some("w1:t2")), "scratchpad-w1:t2.txt");
     }
+
+    /// Hors herdr il n'y a pas de tab : le binaire reste utilisable à la main,
+    /// sur le nom nu.
     #[test]
-    fn la_cible_memorisee_fait_un_aller_retour() {
-        let path = scratch("target").join(TARGET_FILE);
-        write_target(&path, "wdv", "claude").unwrap();
+    fn sans_tab_id_le_nom_est_celui_sans_suffixe() {
+        assert_eq!(file_name(None), STATE_FILE);
+    }
+
+    #[test]
+    fn deux_tabs_ne_partagent_pas_leur_fichier() {
+        assert_ne!(file_name(Some("w1:t1")), file_name(Some("w1:t2")));
+    }
+
+    #[test]
+    fn le_tab_id_se_relit_dans_le_nom_du_fichier() {
+        assert_eq!(tab_id_of("scratchpad-w1:t2.txt"), Some("w1:t2"));
+    }
+
+    /// Le fichier sans clé n'appartient à aucune tab : il ne doit jamais
+    /// devenir candidat au ménage.
+    #[test]
+    fn le_fichier_sans_suffixe_ne_porte_aucun_tab_id() {
+        assert_eq!(tab_id_of(STATE_FILE), None);
+        assert_eq!(tab_id_of("scratchpad-.txt"), None);
+        assert_eq!(tab_id_of("scratchpad-w1:t1.tmp.42"), None, "un temporaire d'écriture");
+    }
+
+    // -- purge des vestiges -----------------------------------------------
+
+    #[test]
+    fn purge_legacy_supprime_l_ancien_global_et_la_cible_memorisee() {
+        let dir = scratch("purge");
+        touch(&dir.join(STATE_FILE));
+        touch(&dir.join(TARGET_FILE));
+        touch(&dir.join("scratchpad-w1:t1.txt"));
+
+        purge_legacy(&dir);
         assert_eq!(
-            read_target(&path),
-            Some(("wdv".to_owned(), "claude".to_owned()))
+            names(&dir),
+            vec!["scratchpad-w1:t1.txt"],
+            "les buffers cloisonnés ne sont pas des vestiges"
         );
     }
 
     #[test]
-    fn une_cible_absente_se_lit_comme_rien() {
-        let path = scratch("notarget").join(TARGET_FILE);
-        assert_eq!(read_target(&path), None);
+    fn purge_legacy_sur_un_repertoire_vide_ne_panique_pas() {
+        purge_legacy(&scratch("purgevide"));
+    }
+
+    /// Dans le repli, `scratchpad.txt` est le buffer d'un binaire lancé à la
+    /// main : seule la cible mémorisée y est un vestige.
+    #[test]
+    fn purge_legacy_target_epargne_le_buffer_sans_suffixe() {
+        let dir = scratch("purgetarget");
+        touch(&dir.join(STATE_FILE));
+        touch(&dir.join(TARGET_FILE));
+
+        purge_legacy_target(&dir);
+        assert_eq!(names(&dir), vec![STATE_FILE]);
+    }
+
+    // -- ménage des orphelins ---------------------------------------------
+
+    #[test]
+    fn sweep_supprime_un_buffer_dont_la_tab_a_disparu() {
+        let dir = scratch("sweep");
+        let own = dir.join("scratchpad-w1:t1.txt");
+        touch(&own);
+        touch(&dir.join("scratchpad-w9:t9.txt"));
+
+        sweep_orphans(&dir, &["w1:t1".to_owned()], &own);
+        assert_eq!(names(&dir), vec!["scratchpad-w1:t1.txt"]);
+    }
+
+    /// Le nôtre survit quoi qu'il arrive : une tab absente de la liste au
+    /// démarrage ne doit pas nous faire effacer le texte qu'on vient d'ouvrir.
+    #[test]
+    fn sweep_ne_supprime_jamais_le_sien() {
+        let dir = scratch("sweepown");
+        let own = dir.join("scratchpad-w1:t1.txt");
+        touch(&own);
+
+        sweep_orphans(&dir, &["w2:t2".to_owned()], &own);
+        assert_eq!(names(&dir), vec!["scratchpad-w1:t1.txt"]);
     }
 
     #[test]
-    fn une_cible_illisible_se_lit_comme_rien() {
-        let dir = scratch("badtarget");
-        let path = dir.join(TARGET_FILE);
-        std::fs::write(&path, "pas de tabulation ici").unwrap();
-        assert_eq!(read_target(&path), None, "sans separateur, rien a lire");
+    fn sweep_ne_touche_pas_au_fichier_sans_suffixe() {
+        let dir = scratch("sweepnu");
+        touch(&dir.join(STATE_FILE));
 
-        std::fs::write(&path, "\tclaude").unwrap();
-        assert_eq!(read_target(&path), None, "un libelle vide ne designe rien");
+        sweep_orphans(&dir, &["w1:t1".to_owned()], &dir.join("ailleurs.txt"));
+        assert_eq!(names(&dir), vec![STATE_FILE]);
     }
 
-    /// La cible ne doit jamais atterrir dans le fichier de texte : celui-ci
-    /// reste du texte nu, lisible au `cat` (§8 du DESIGN).
     #[test]
-    fn la_cible_vit_dans_son_propre_fichier() {
-        assert_ne!(TARGET_FILE, STATE_FILE);
+    fn sweep_sur_un_repertoire_absent_ne_panique_pas() {
+        let dir = scratch("sweepabsent").join("jamais-cree");
+        sweep_orphans(&dir, &["w1:t1".to_owned()], &dir.join("x.txt"));
+    }
+
+    // -- export -----------------------------------------------------------
+
+    #[test]
+    fn export_path_is_stable_across_calls() {
+        assert_eq!(export_path(Some("w1:t1")), export_path(Some("w1:t1")));
+    }
+
+    #[test]
+    fn le_chemin_d_export_porte_le_tab_id() {
+        assert!(export_path(Some("w1:t2")).ends_with("herdr-scratchpad-w1:t2.txt"));
+    }
+
+    /// Deux tabs qui exportent ne doivent pas s'écraser l'une l'autre.
+    #[test]
+    fn deux_tabs_n_exportent_pas_dans_le_meme_fichier() {
+        assert_ne!(export_path(Some("w1:t1")), export_path(Some("w1:t2")));
+    }
+
+    #[test]
+    fn sans_tab_id_l_export_garde_le_chemin_nu() {
+        assert!(export_path(None).ends_with("herdr-scratchpad.txt"));
     }
 }

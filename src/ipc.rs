@@ -101,8 +101,10 @@ pub fn stamp(pane_id: &str) {
 pub trait Herdr {
     /// JSON brut de `agent.list`.
     fn agent_list(&self) -> Option<String>;
-    /// JSON brut de `workspace.list`.
-    fn workspace_list(&self) -> Option<String>;
+    /// JSON brut de `tab.list`, **non scopé** : toutes les tabs de tous les
+    /// workspaces. C'est la liste des tabs vivantes, et elle ne sert qu'au
+    /// ménage des buffers orphelins, au démarrage.
+    fn tab_list(&self) -> Option<String>;
     /// Dépose `text` dans la boîte de saisie d'un pane, **sans le soumettre**.
     fn send_input(&self, pane_id: &str, text: &str) -> Result<(), String>;
     /// Pose le focus sur l'agent d'un pane.
@@ -117,8 +119,12 @@ impl Herdr for Socket {
         call_raw("agent.list", serde_json::json!({}))
     }
 
-    fn workspace_list(&self) -> Option<String> {
-        call_raw("workspace.list", serde_json::json!({}))
+    /// `workspace_id` est optionnel dans `TabListParams` : sans lui, herdr
+    /// parcourt tous les workspaces (`herdr src/app/api/tabs.rs:21`). Un seul
+    /// appel suffit donc, et il remplace celui que `workspace.list` coûtait à
+    /// chaque rafraîchissement.
+    fn tab_list(&self) -> Option<String> {
+        call_raw("tab.list", serde_json::json!({}))
     }
 
     /// `keys: []` est le cœur de la fonctionnalité : le texte atterrit dans le

@@ -6,6 +6,10 @@ Un panneau [herdr](https://herdr.dev) docké en bas où l'on colle, où l'on
 récupère, et qu'on vide. Pas un carnet : un outil de **transit**. Le texte est
 sauvegardé tout seul, en texte brut, et revient après un redémarrage.
 
+**Un buffer par tab** : le scratchpad d'une tab a son texte et parle aux agents
+de cette tab, pas à ceux d'à côté. Ce qu'on voit, ce qu'on édite et ce à quoi
+on parle coïncident.
+
 ```
 herdr plugin link .
 ```
@@ -15,10 +19,10 @@ herdr plugin link .
 | Touche | Bouton | Action |
 | --- | --- | --- |
 | `Ctrl+E` | `^E envoyer` | dépose le texte chez un agent, vide, et bascule dessus |
-| `Ctrl+N` | `→ claude·wdv` | agent suivant |
+| `Ctrl+N` | `→ claude·p3` | agent suivant de la tab (à partir de deux) |
 | `Ctrl+C` | `^C copier` | copie tout vers le presse-papier de ta machine |
 | `Ctrl+L` | `^L vider` | vide, sans confirmation |
-| `Ctrl+S` | `^S fichier` | écrit `/tmp/herdr-scratchpad.txt` |
+| `Ctrl+S` | `^S fichier` | écrit `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` |
 | `Ctrl+Z` | `^Z annuler` | ramène le dernier contenu vidé ou envoyé |
 
 Ce sont les combinaisons que tes doigts connaissent déjà, chacune à sa
@@ -88,15 +92,19 @@ Ceci est un **presse-papier** :
 
 C'est la propriété la plus utile, et elle est gratuite.
 
-L'état vit dans `$HERDR_PLUGIN_STATE_DIR/scratchpad.txt`, en clair. Le fichier
-**est** le texte, sans échappement. Donc :
+L'état vit dans `$HERDR_PLUGIN_STATE_DIR/scratchpad-$HERDR_TAB_ID.txt`, en
+clair. Le fichier **est** le texte, sans échappement. `HERDR_TAB_ID` est présent
+dans le pane de l'agent comme dans les autres : il compose le chemin lui-même,
+sans qu'on le lui donne. Donc, depuis le pane d'un agent :
 
 ```bash
-# lire ce qu'il y a dans le scratchpad
-cat ~/.local/state/herdr/plugins/herdr-scratchpad/scratchpad.txt
+D=~/.local/state/herdr/plugins/herdr-scratchpad
 
-# y déposer quelque chose depuis n'importe où
-git log --oneline -20 > ~/.local/state/herdr/plugins/herdr-scratchpad/scratchpad.txt
+# lire ce qu'il y a dans le scratchpad de ma tab
+cat "$D/scratchpad-$HERDR_TAB_ID.txt"
+
+# y déposer quelque chose
+git log --oneline -20 > "$D/scratchpad-$HERDR_TAB_ID.txt"
 ```
 
 Le pane surveille le fichier et se recharge tout seul quand il change — sauf
@@ -104,8 +112,12 @@ s'il a des frappes non sauvegardées, auquel cas ce que tu tapes gagne. Un agent
 qui écrit ce fichier fait apparaître le texte devant toi ; ce que tu colles dans
 le pane, il peut le lire.
 
-Plusieurs panes scratchpad peuvent être ouverts en même temps : ils partagent le
-fichier, donc le texte.
+Plusieurs panes scratchpad peuvent être ouverts en même temps, un par tab :
+chacun a son fichier, donc son texte. Pour faire passer du texte d'une tab à
+l'autre, `Ctrl+C` ou `Ctrl+S` — un geste explicite.
+
+La clé est figée à l'ouverture du pane : un scratchpad déplacé vers une autre
+tab (`pane move`) garde le buffer et les cibles de sa tab d'origine.
 
 ## Copier, et la limite des 192 Ko
 
@@ -122,8 +134,9 @@ herdr réserve `Shift`+souris au terminal, et le plugin n'y touche pas.
 
 ## Export
 
-`Ctrl+S` écrit `/tmp/herdr-scratchpad.txt` — chemin fixe, écrasé, affiché
-3 secondes dans la barre.
+`Ctrl+S` écrit `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` — chemin fixe pour une
+tab, écrasé, affiché 3 secondes dans la barre. Une tab n'écrase donc jamais
+l'instantané d'une autre.
 
 Ce n'est pas « sortir le texte » (le fichier d'état s'en charge déjà) : c'est
 **figer un instantané**. Le fichier d'état bouge tout seul ; celui-là non.

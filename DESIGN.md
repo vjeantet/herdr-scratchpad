@@ -182,7 +182,11 @@ plus tard — une case suffit.
 
 ## 8. Persistance
 
-**`scratchpad.txt`, texte brut**, dans `HERDR_PLUGIN_STATE_DIR`.
+**`scratchpad-<tab_id>.txt`, texte brut**, dans `HERDR_PLUGIN_STATE_DIR`.
+
+> **Révision du 2026-08-25.** Le fichier s'appelait `scratchpad.txt` et il était
+> **unique** : un texte pour toutes les tabs. Il porte maintenant la clé de sa
+> tab — c'est le cloisonnement de §9.
 
 Le fichier d'état *est* le texte. Pas de JSON : sans mode ni métadonnée à ranger
 à côté, il ne servirait qu'à échapper le contenu et à le rendre illisible au
@@ -192,32 +196,82 @@ C'est la meilleure affaire du design : le scratchpad devient un **canal
 bidirectionnel** presque gratuit. On écrit dans le pane, un agent lit le
 fichier ; un agent écrit dans le fichier, le pane se recharge tout seul (§9).
 
+La clé ne demande aucune négociation : `HERDR_TAB_ID` est injecté par herdr
+dans tout pane qu'il crée, `pane split` compris, donc l'agent compose le chemin
+lui-même — `cat $HERDR_PLUGIN_STATE_DIR/scratchpad-$HERDR_TAB_ID.txt`. C'est ce
+qui a fait écarter l'action de manifeste et le mode `--state-path` : deux
+commandes et un aller-retour pour publier une information constante.
+
 - Écriture **atomique** : fichier temporaire + `fsync` + `rename`.
 - Autosave **debouncée ~500 ms** après la dernière frappe — plus court que les
   2 s de `herdr-notes`, parce qu'ici le fichier sert de canal vers les agents.
 - Sauvegarde aussi au vidage et à la fermeture.
 - Fichier absent ou illisible → buffer vide. Ça ne doit jamais bloquer le pane.
 - Hors herdr (`HERDR_PLUGIN_STATE_DIR` absent) : repli sur le répertoire de
-  config de la plateforme.
+  config de la plateforme, et **sans clé** — pas de tab, donc `scratchpad.txt`
+  tout court. Le binaire doit rester utilisable à la main.
 
-## 9. Plusieurs panes ouverts
+**L'ancien buffer global est supprimé au démarrage**, sèchement, avec les
+`target.txt` devenus sans objet (§14.7). Pas de sauvegarde, pas de migration :
+adopter l'ancien texte dans une tab choisie arbitrairement recréerait
+exactement la surprise que le cloisonnement supprime. Le `scratchpad.txt` du
+répertoire de repli, lui, est épargné : là-bas, ce nom n'a jamais désigné un
+buffer global.
 
-Autorisés. Le **fichier est la source unique de vérité** : chaque pane surveille
-son mtime et se recharge quand il change *et* qu'il n'a pas lui-même de frappes
-non sauvegardées.
+**Ménage des orphelins, au démarrage aussi.** Les numéros de tab publics ne sont
+jamais réutilisés (`herdr src/workspace.rs:1593`) et survivent au redémarrage du
+serveur : un buffer dont la tab a disparu est donc orphelin *définitivement*, et
+aucune tab neuve n'héritera jamais de son texte. Un `tab.list` non scopé donne
+les tabs vivantes ; les fichiers au motif `scratchpad-w*:t*.txt` dont la tab
+manque sont supprimés, dans les deux répertoires, jamais le sien. **Abstention
+totale** si la réponse est en erreur ou vide : une liste vide n'est jamais une
+information, c'est une panne — et le ménage effacerait alors le travail de
+toutes les tabs. Un échec de ménage est muet.
 
-C'est la seule option qui tient la promesse du buffer global : *un* texte,
-**partout**. Un singleton la trahirait à moitié — un texte unique mais un seul
-endroit d'où y accéder, ce qui rate le cas « je colle depuis A, je récupère dans
-B ».
+## 9. Un buffer par tab
 
-Le risque de collision est théorique : il n'y a qu'un humain, il ne tape que
-dans un pane à la fois, et la fenêtre réelle est celle de l'autosave.
+> **Révision du 2026-08-25.** Ce paragraphe disait exactement l'inverse : *un*
+> texte, **partout**, quel que soit le pane d'où on le regarde. Le cloisonnement
+> le renverse.
+
+Le scratchpad naît d'un `pane split` du pane focalisé : il vit donc dans la
+**tab** de l'agent qu'on regardait. Un texte partagé entre toutes les tabs
+oblige alors à se demander « d'où vient ce que je vois » et « à qui part ce que
+j'envoie » à chaque geste — deux questions auxquelles ni l'écran ni la barre ne
+savent répondre. Cloisonner par tab fait coïncider ce qu'on voit, ce qu'on
+édite et ce à quoi on parle.
+
+La clé est la **tab**, pas l'agent. Deux agents dans la même tab partagent donc
+ce buffer et ne changent que la destination (§14.4). Un buffer par *agent* a été
+écarté : cycler la cible remplacerait le texte à l'écran, c'est-à-dire ferait
+disparaître ce qu'on vient de taper au moment précis où l'on vérifie où l'on
+parle.
+
+Ce qu'on perd, assumé : « je colle depuis A, je récupère dans B » ne se fait
+plus tout seul. Le transit d'une tab à l'autre passe par `Ctrl+C` (§5) ou
+`Ctrl+S` (§10) — un geste explicite, ce qui est précisément le point.
+
+Plusieurs panes restent possibles, et le **fichier reste la source unique de
+vérité** pour sa tab : chaque pane surveille son mtime et se recharge quand il
+change *et* qu'il n'a pas lui-même de frappes non sauvegardées. C'est ce qui
+fait marcher le canal bidirectionnel de §8.
+
+La clé est **figée au spawn** : `HERDR_TAB_ID` est une variable
+d'environnement, et `pane.move` permet de déplacer un pane vers une autre tab
+(`herdr src/api/schema/panes.rs:82`). Un scratchpad déplacé garde donc le buffer
+et les cibles de sa tab d'origine. Limite connue, assumée : résoudre la tab à
+chaque rafraîchissement ferait changer le texte sous les yeux au milieu d'un
+geste, pour un déplacement qui ne se fait pas.
 
 ## 10. Export
 
-`/tmp/herdr-scratchpad.txt` — chemin **fixe**, **écrasé** à chaque export, et
-affiché ~3 s dans la barre du bas.
+`/tmp/herdr-scratchpad-<tab_id>.txt` — chemin **fixe pour une tab**, **écrasé**
+à chaque export, et affiché ~3 s dans la barre du bas.
+
+> **Révision du 2026-08-25.** Le chemin était unique. Tant que le buffer était
+> global, deux exports écrivaient le même texte ; depuis le cloisonnement (§9),
+> un chemin fixe ferait écraser silencieusement l'instantané d'une autre tab —
+> au seul endroit que personne ne surveille.
 
 Son rôle a changé une fois le fichier d'état passé en texte brut (§8) : ce n'est
 plus « sortir le texte », c'est **figer un instantané**. Un fichier d'état qui
@@ -227,7 +281,8 @@ servir ailleurs, il faut une copie qui ne changera plus sous les pieds.
 C'est aussi le recours au-delà des 192 Ko d'OSC 52 (§5).
 
 Un chemin stable est une adresse : les scripts et les agents peuvent le lire
-sans qu'on leur dise où. `/tmp` est vidé au reboot, sans importance — la vraie
+sans qu'on leur dise où — ils ont `HERDR_TAB_ID` pour le composer, comme pour le
+fichier d'état. `/tmp` est vidé au reboot, sans importance — la vraie
 persistance est ailleurs (§8).
 
 ## 11. Collage
@@ -277,7 +332,7 @@ Sans branche de conception à ouvrir dessus :
 > Ajout du 2026-08-24, même méthode : décisions posées une par une avant la
 > première ligne de code.
 
-Un bouton `[^E envoyer]` et une zone `[→ claude·wdv]` en tête de la barre du
+Un bouton `[^E envoyer]` et une zone `[→ claude·p3]` à droite de la barre du
 bas. Le texte du scratchpad est **déposé** dans la boîte de saisie d'un agent
 herdr, puis le scratchpad se vide dans sa case de secours.
 
@@ -324,18 +379,45 @@ l'utilisateur, celle-ci démarre du travail ailleurs. Un bouton dont on ne peut
 pas lire la destination avant d'appuyer est un piège, surtout avec plusieurs
 agents `claude` que rien ne distingue.
 
-Libellé `→ <agent>·<label du workspace>`. Quand la barre est serrée, le
-workspace tombe **entier** avant que le nom de l'agent ne soit entamé : un
-`→ claude·herdr-scr` tronqué désignerait aussi bien un autre workspace
-commençant pareil.
+Libellé `→ <agent>·<suffixe du pane_id>`, `→ claude·p3`. Quand la barre est
+serrée, le suffixe tombe **entier** avant que le nom de l'agent ne soit entamé :
+un suffixe tronqué désignerait aussi bien le pane d'à côté.
 
-### 14.4 Choix de la cible par défaut
+> **Révision du 2026-08-25.** Le libellé portait le label du *workspace*. Depuis
+> que la portée est la tab (§14.4), le workspace est constant et n'apprend plus
+> rien ; le suffixe du `pane_id`, lui, est le seul discriminant à la fois
+> unique, stable et vérifiable au `herdr pane list` — il distingue enfin deux
+> `claude` de la même tab, ce que rien ne faisait.
 
-1. l'agent de la **même tab que ce pane** (`HERDR_TAB_ID`) ;
-2. sinon l'agent du **même workspace** (`HERDR_WORKSPACE_ID`) ;
-3. sinon la **dernière cible utilisée**, mémorisée sur disque ;
-4. sinon le **premier agent disponible** ;
-5. sinon aucune : `→ aucun agent`, et le bouton refuse au clic.
+La zone n'apparaît **qu'à partir de deux agents** : avec un seul, elle ne dirait
+que ce que `^E` fait déjà. Sans agent, il n'y a ni zone ni bouton — un bouton
+qui n'existe que pour refuser est du bruit.
+
+**Ordre de la barre** : les commandes fixes à gauche, le variable à droite.
+
+```
+0 agent    ^C copier · ^L vider · ^S fichier · ^Z annuler
+1 agent    ^C copier · ^L vider · ^S fichier · ^Z annuler · ^E envoyer
+2 agents   ^C copier · ^L vider · ^S fichier · ^Z annuler · ^E envoyer · → claude·p3
+```
+
+La liste d'agents est rafraîchie toutes les 2,5 s : `^E` et la zone
+apparaissent et disparaissent tout seuls. À gauche, ils décaleraient `^C`,
+`^L`, `^S` et `^Z` pendant que le doigt descend vers eux ; à droite, ces
+quatre-là ne bougent **jamais**. Corollaire assumé : le rognage partant
+toujours de la droite, ce sont la cible puis `^E` qui tombent d'abord sur une
+barre étroite — `Ctrl+E` reste au clavier, et la destination est maintenant
+locale à la tab.
+
+### 14.4 Choix de la cible : les agents de ma tab, point
+
+Les cibles sont **les agents de la tab de ce pane** (`HERDR_TAB_ID`), ordonnés
+par `pane_id`, le premier par défaut — l'ordre étant stable, « le premier »
+désigne toujours le même. La sélection vit **en mémoire seule** et se perd à la
+fermeture du pane.
+
+Un scratchpad **seul dans sa tab** n'a donc aucune cible, jamais, quoi qu'il
+arrive ailleurs : c'est un bloc-notes local, et c'est assumé.
 
 > **Correction du 2026-08-24, au test en vrai.** La règle s'arrêtait d'abord au
 > workspace. C'était insuffisant : un workspace porte plusieurs tabs, donc
@@ -343,8 +425,13 @@ commençant pareil.
 > regardait. « L'agent du pane courant » se lit dans la **tab**, parce que le
 > scratchpad naît d'un split du pane focalisé et hérite donc de sa tab.
 
-Le repli sur le workspace reste utile : un scratchpad **seul dans sa tab** n'a
-aucun agent chez lui (§3 prévoit déjà ce cas pour la fermeture).
+> **Révision du 2026-08-25.** La préférence était une échelle de replis :
+> workspace, puis dernière cible mémorisée, puis premier agent venu. Tous
+> tombent. La portée est la tab, et rien d'autre : l'exception « si ma tab n'a
+> aucun agent, alors on rouvre au workspace » rendrait la destination dépendante
+> d'un état que rien à l'écran n'explique. `agent.list` porte déjà le `tab_id`
+> de chaque agent, donc le filtre ne coûte pas un appel de plus — et
+> `workspace.list` disparaît du rafraîchissement.
 
 ### 14.5 Cyclage
 
@@ -362,6 +449,10 @@ la zone cible — celle qu'on vient de cliquer et qu'on veut recliquer — et
 dirait de toute façon ce qu'elle affiche déjà en permanence. Le retour d'une
 commande qui ne fait que changer un affichage, c'est cet affichage.
 
+En dessous de **deux** agents, `Ctrl+N` et le clic ne font **rien**, sans
+message : il n'y a nulle part où aller, et la zone n'est même pas dessinée
+(§14.3). Un refus muet est cohérent avec un cyclage qui n'a jamais de retour.
+
 ### 14.6 Fraîcheur de la cible
 
 Rafraîchissement de l'affichage toutes les **2,5 s**, et **revérification au
@@ -372,14 +463,16 @@ serait envoyer ailleurs que ce que l'utilisateur a lu.
 L'affichage n'a besoin d'être qu'à peu près à jour ; l'action doit être
 exactement juste.
 
-### 14.7 La mémoire de la cible n'est pas dans `scratchpad.txt`
+### 14.7 La mémoire de la cible — supprimée le 2026-08-25
 
-Ce fichier reste du **texte nu** : c'est tout le contrat du canal
-bidirectionnel (§8). La dernière cible va dans un fichier voisin `target.txt`.
+Il n'y a plus rien à retenir. La portée étant la tab (§14.4), la cible se
+recalcule entièrement depuis `agent.list` à chaque ouverture, et la sélection
+vit en mémoire. `target.txt` n'existe plus ; les exemplaires laissés sur disque
+sont supprimés au démarrage (§8).
 
-Contenu : `<label du workspace>\t<agent>` — **pas** le `pane_id`, qui ne survit
-pas à un redémarrage de herdr. La résolution au démarrage re-cherche un agent
-correspondant à cette paire.
+Le numéro reste occupé pour ne pas décaler les renvois. Ce qui survit de ce
+paragraphe est sa raison d'être : `scratchpad-<tab_id>.txt` reste du **texte
+nu**, et rien d'autre n'ira jamais dedans.
 
 ### 14.9 Le focus suit le texte
 
@@ -397,8 +490,11 @@ Un échec de bascule est avalé — le texte est déjà parti, et rater le focus
 doit pas transformer un envoi réussi en message d'erreur. Un envoi qui échoue,
 lui, ne bascule pas du tout : le texte est encore sous les yeux.
 
-Ce que ça coûte, assumé : le `^Z` du dépôt n'est plus à une touche, il faut
-revenir par `prefix+a`. La case de secours, elle, survit intacte. Les variantes
+Ce que ça coûtait, assumé : le `^Z` du dépôt n'était plus à une touche, il
+fallait revenir par `prefix+a`. Depuis le cloisonnement (§9), l'agent est le
+pane d'à côté : `agent.focus` ne change plus de tab et le scratchpad **reste
+visible**. Le coût s'allège donc de lui-même. Ne pas en profiter pour fermer le
+pane après l'envoi : la case de secours vit en mémoire, la fermer la détruit. Les variantes
 « basculer seulement dans la même tab » et « deux touches, une par sens » ont
 été écartées : la première rend le comportement conditionnel donc imprévisible
 (le plugin n'a aucun mode, §1), la seconde ajoute une touche et un bouton pour

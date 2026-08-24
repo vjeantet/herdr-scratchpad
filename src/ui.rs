@@ -22,17 +22,30 @@ const EMPTY_HINT: &str =
 
 /// Part de la barre réservée à la zone cible, et son plancher.
 ///
-/// La zone porte un libellé de longueur inconnue (un workspace peut s'appeler
-/// `herdr-scratchpad`). Sans budget, un libellé long ne tiendrait pas dans la
-/// barre et **tout ce qui le suit** disparaîtrait — la règle de rognage
-/// s'arrête au premier élément qui déborde. Le plancher laisse toujours passer
-/// `→ aucun agent`.
+/// La zone porte un libellé de longueur inconnue : un agent peut s'appeler
+/// autrement que `claude`. Sans budget, un libellé long ne tiendrait pas dans
+/// la barre et **tout ce qui le suit** disparaîtrait — la règle de rognage
+/// s'arrête au premier élément qui déborde. La zone étant maintenant la
+/// dernière, il n'y a plus rien derrière elle à protéger ; le budget reste par
+/// prudence, le plancher laissant passer un `→ claude·p3` entier.
 const TARGET_SHARE: usize = 3;
 const TARGET_MIN_COLS: usize = 13;
 
 /// Largeur d'affichage d'une chaîne, en colonnes.
 fn columns(s: &str) -> usize {
     s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum()
+}
+
+/// Ce que la barre sait des cibles : celle qui est retenue, et combien il y
+/// en a dans la tab.
+///
+/// Les deux voyagent ensemble parce qu'ils se décident ensemble : c'est le
+/// **nombre** qui fait apparaître `^E` puis la zone, et la cible qui remplit
+/// la zone une fois qu'elle existe.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Targets<'a> {
+    pub current: Option<&'a Target>,
+    pub count: usize,
 }
 
 /// Une entrée de la barre du bas : ce qu'elle fait, ce qu'elle affiche, où.
@@ -49,20 +62,37 @@ pub struct BarItem {
 
 /// Les entrées de la barre, dans l'ordre d'affichage.
 ///
-/// `envoyer` et sa cible passent en tête : c'est la seule commande sortante du
-/// plugin, et sa destination doit être lisible avant qu'on appuie. Le
-/// destructif n'est toujours pas au bord — les extrémités sont là où le pouce
-/// dérape sur un petit écran.
-fn bar_labels(target: Option<&Target>, bar_width: usize) -> Vec<(Action, String)> {
-    let budget = (bar_width / TARGET_SHARE).max(TARGET_MIN_COLS);
-    vec![
-        (Action::Command(Command::Send), "^E envoyer".to_owned()),
-        (Action::CycleTarget, agents::label(target, budget)),
+/// Les commandes **fixes** à gauche, les éléments **variables** à droite. La
+/// liste d'agents est rafraîchie toutes les deux secondes et demie : `^E` et
+/// la zone cible apparaissent et disparaissent tout seuls, au gré des agents
+/// qui démarrent et s'arrêtent. À gauche, ils décaleraient `^C`, `^L`, `^S` et
+/// `^Z` pendant que le doigt descend vers eux ; à droite, ces quatre-là ne
+/// bougent **jamais** — ni selon les agents, ni selon la largeur.
+///
+/// Corollaire assumé : le rognage partant toujours de la droite, ce sont la
+/// cible puis `^E` qui tombent d'abord sur une barre étroite. La cible est
+/// maintenant locale à la tab, et `Ctrl+E` reste au clavier.
+fn bar_labels(targets: Targets, bar_width: usize) -> Vec<(Action, String)> {
+    let mut out = vec![
         (Action::Command(Command::Copy), "^C copier".to_owned()),
         (Action::Command(Command::Clear), "^L vider".to_owned()),
         (Action::Command(Command::Export), "^S fichier".to_owned()),
         (Action::Command(Command::Undo), "^Z annuler".to_owned()),
-    ]
+    ];
+    // Sans agent dans la tab, il n'y a rien à quoi parler : le bouton
+    // n'existe pas, plutôt que d'exister pour refuser.
+    if targets.count >= 1 {
+        out.push((Action::Command(Command::Send), "^E envoyer".to_owned()));
+    }
+    // Avec un seul agent, la zone n'apprendrait rien : elle ne dirait que ce
+    // que `^E` fait déjà, et son cyclage n'aurait nulle part où aller.
+    if targets.count >= 2
+        && let Some(target) = targets.current
+    {
+        let budget = (bar_width / TARGET_SHARE).max(TARGET_MIN_COLS);
+        out.push((Action::CycleTarget, agents::label(target, budget)));
+    }
+    out
 }
 
 /// Une ligne visuelle : un morceau d'une ligne logique, tel qu'il est affiché.
@@ -126,10 +156,10 @@ pub fn cursor_visual_row(rows: &[VisualRow], cursor: (usize, usize)) -> usize {
 /// Une entrée qui ne tient pas entièrement n'est **pas** enregistrée, et rien
 /// n'est dessiné après elle : ratatui la rognerait à l'écran, et un rectangle
 /// cliquable invisible serait un piège. Comme la liste est ordonnée, ce sont
-/// les entrées de droite qui tombent d'abord — `^Z annuler` en premier, il a
-/// déjà sa touche.
-pub fn layout_bar(bar: Rect, target: Option<&Target>) -> Vec<BarItem> {
-    let labels = bar_labels(target, bar.width as usize);
+/// les entrées de droite qui tombent d'abord — la zone cible en premier, puis
+/// `^E`, qui a déjà sa touche.
+pub fn layout_bar(bar: Rect, targets: Targets) -> Vec<BarItem> {
+    let labels = bar_labels(targets, bar.width as usize);
     let mut out = Vec::with_capacity(labels.len());
     let mut x = bar.x;
     let right = bar.x.saturating_add(bar.width);
@@ -171,7 +201,7 @@ pub fn draw(
     scroll: &mut usize,
     status: Option<&str>,
     show_hint: bool,
-    target: Option<&Target>,
+    targets: Targets,
 ) -> Geometry {
     let area = frame.area();
 
@@ -229,7 +259,7 @@ pub fn draw(
         );
         Vec::new()
     } else {
-        let items = layout_bar(bar, target);
+        let items = layout_bar(bar, targets);
         let mut spans = Vec::with_capacity(items.len() * 2);
         for (i, item) in items.iter().enumerate() {
             if i > 0 {
@@ -341,23 +371,52 @@ mod tests {
         assert_eq!(cursor_visual_row(&rows, (1, 0)), 1);
     }
 
-    fn target() -> Target {
-        Target {
-            pane_id: "w2:p1".into(),
-            agent: "claude".into(),
-            tab_id: "w2:t1".into(),
-            workspace_id: "w2".into(),
-            workspace_label: "wdv".into(),
-        }
+    fn target(agent: &str, pane_id: &str) -> Target {
+        Target { pane_id: pane_id.into(), agent: agent.into() }
     }
 
+    /// Vue d'une tab à `count` agents, dont `claude` est la cible retenue.
+    fn view(current: &Target, count: usize) -> Targets<'_> {
+        Targets { current: Some(current), count }
+    }
+
+    /// La barre d'une tab à deux agents : tout est là.
     fn bar(width: u16) -> Vec<BarItem> {
-        layout_bar(Rect { x: 0, y: 0, width, height: 1 }, Some(&target()))
+        let t = target("claude", "w2:p1");
+        layout_bar(Rect { x: 0, y: 0, width, height: 1 }, view(&t, 2))
+    }
+
+    /// Les actions d'une barre large, pour un nombre d'agents donné.
+    fn actions(target_count: usize) -> Vec<Action> {
+        let t = target("claude", "w2:p1");
+        layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&t, target_count))
+            .iter()
+            .map(|i| i.action)
+            .collect()
+    }
+
+    /// Les rectangles des quatre commandes fixes, pour un nombre d'agents donné.
+    fn fixed_rects(target_count: usize) -> Vec<Rect> {
+        let t = target("claude", "w2:p1");
+        layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&t, target_count))
+            .iter()
+            .filter(|i| {
+                matches!(
+                    i.action,
+                    Action::Command(Command::Copy)
+                        | Action::Command(Command::Clear)
+                        | Action::Command(Command::Export)
+                        | Action::Command(Command::Undo)
+                )
+            })
+            .map(|i| i.rect)
+            .collect()
     }
 
     #[test]
     fn buttons_are_laid_out_left_to_right_without_overlap() {
-        let items = layout_bar(Rect { x: 0, y: 9, width: 120, height: 1 }, Some(&target()));
+        let t = target("claude", "w2:p1");
+        let items = layout_bar(Rect { x: 0, y: 9, width: 120, height: 1 }, view(&t, 2));
         assert_eq!(items.len(), 6);
         for pair in items.windows(2) {
             assert!(
@@ -373,7 +432,7 @@ mod tests {
     #[test]
     fn buttons_that_do_not_fit_are_dropped() {
         let items = bar(12);
-        assert_eq!(items.len(), 1, "seul « ^E envoyer » (10) tient dans 12");
+        assert_eq!(items.len(), 1, "seul « ^C copier » (9) tient dans 12");
 
         assert!(bar(3).is_empty());
     }
@@ -389,18 +448,33 @@ mod tests {
 
     #[test]
     fn buttons_respect_a_non_zero_origin() {
-        let items = layout_bar(Rect { x: 5, y: 0, width: 120, height: 1 }, Some(&target()));
+        let t = target("claude", "w2:p1");
+        let items = layout_bar(Rect { x: 5, y: 0, width: 120, height: 1 }, view(&t, 2));
         assert_eq!(items[0].rect.x, 5);
     }
 
     #[test]
     fn button_order_matches_the_declared_one() {
-        let actions: Vec<_> = bar(120).iter().map(|i| i.action).collect();
         assert_eq!(
-            actions,
+            actions(2),
             vec![
+                Action::Command(Command::Copy),
+                Action::Command(Command::Clear),
+                Action::Command(Command::Export),
+                Action::Command(Command::Undo),
                 Action::Command(Command::Send),
                 Action::CycleTarget,
+            ]
+        );
+    }
+
+    /// Sans agent dans la tab, il n'y a rien à quoi parler : ni le bouton, ni
+    /// la zone.
+    #[test]
+    fn sans_agent_ni_envoi_ni_zone_cible_ne_sont_dans_la_barre() {
+        assert_eq!(
+            actions(0),
+            vec![
                 Action::Command(Command::Copy),
                 Action::Command(Command::Clear),
                 Action::Command(Command::Export),
@@ -409,31 +483,67 @@ mod tests {
         );
     }
 
-    /// Le rognage part de la droite : sur une barre serrée, `envoyer` et la
-    /// cible survivent — on ne doit jamais pouvoir envoyer sans lire où.
+    /// Avec un seul agent, la zone n'apprendrait rien — `^E` dit déjà tout.
     #[test]
-    fn send_and_its_target_survive_a_narrow_bar() {
-        let items = bar(24);
-        assert!(items.len() >= 2, "il reste {} entrée(s)", items.len());
-        assert_eq!(items[0].action, Action::Command(Command::Send));
-        assert_eq!(items[1].action, Action::CycleTarget);
-        assert!(items[1].label.contains("claude"));
-    }
-
-    /// Un libellé de workspace interminable ne doit pas emporter le reste de
-    /// la barre avec lui : la zone cible a un budget.
-    #[test]
-    fn a_very_long_workspace_label_does_not_eat_the_bar() {
-        let mut long = target();
-        long.workspace_label = "w".repeat(200);
-        let items = layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, Some(&long));
-        assert_eq!(items.len(), 6);
+    fn avec_un_agent_l_envoi_est_la_mais_pas_la_zone_cible() {
+        assert_eq!(
+            actions(1),
+            vec![
+                Action::Command(Command::Copy),
+                Action::Command(Command::Clear),
+                Action::Command(Command::Export),
+                Action::Command(Command::Undo),
+                Action::Command(Command::Send),
+            ]
+        );
     }
 
     #[test]
-    fn the_bar_still_lays_out_without_a_target() {
-        let items = layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, None);
+    fn avec_deux_agents_l_envoi_et_la_zone_cible_sont_la() {
+        assert!(actions(2).contains(&Action::Command(Command::Send)));
+        assert!(actions(2).contains(&Action::CycleTarget));
+    }
+
+    /// La raison d'être de l'inversion : un agent qui démarre ou s'arrête ne
+    /// doit pas déplacer les trois commandes sous le doigt qui descend.
+    #[test]
+    fn les_commandes_fixes_ne_bougent_pas_avec_le_nombre_d_agents() {
+        assert_eq!(fixed_rects(0), fixed_rects(1), "un agent qui démarre ne décale rien");
+        assert_eq!(fixed_rects(1), fixed_rects(2), "un second non plus");
+    }
+
+    /// Corollaire assumé de l'inversion : sur une barre étroite, ce sont la
+    /// cible puis `^E` qui tombent — jamais les trois commandes fixes.
+    #[test]
+    fn les_commandes_fixes_survivent_a_une_barre_etroite() {
+        let items = bar(30);
+        let actions: Vec<_> = items.iter().map(|i| i.action).collect();
+        assert!(actions.starts_with(&[
+            Action::Command(Command::Copy),
+            Action::Command(Command::Clear),
+            Action::Command(Command::Export),
+        ]));
+        assert!(!actions.contains(&Action::CycleTarget), "la zone tombe la première");
+    }
+
+    /// Un nom d'agent interminable ne doit pas emporter le reste de la barre
+    /// avec lui : la zone cible a un budget.
+    #[test]
+    fn un_nom_d_agent_interminable_ne_mange_pas_la_barre() {
+        let long = target(&"a".repeat(200), "w2:p1");
+        let items = layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&long, 2));
         assert_eq!(items.len(), 6);
-        assert_eq!(items[1].label, agents::NO_TARGET);
+    }
+
+    /// Deux agents annoncés mais aucune cible retenue : la barre ne doit pas
+    /// s'effondrer, elle affiche juste ce qu'elle sait.
+    #[test]
+    fn la_barre_se_dispose_encore_sans_cible_retenue() {
+        let items = layout_bar(
+            Rect { x: 0, y: 0, width: 120, height: 1 },
+            Targets { current: None, count: 2 },
+        );
+        assert_eq!(items.len(), 5);
+        assert!(!items.iter().any(|i| i.action == Action::CycleTarget));
     }
 }

@@ -1,5 +1,6 @@
 //! L'état du pane et sa machine à événements.
 
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{
@@ -8,12 +9,17 @@ use crossterm::event::{
 use ratatui::layout::{Position, Rect};
 use ratatui::Frame;
 
-use crate::agents::{self, Home, Target};
+use crate::agents::{self, Target};
 use crate::buffer::{Buffer, PAGE_FALLBACK};
 use crate::clipboard::{self, CopyError, MAX_CLIPBOARD_BYTES};
 use crate::ipc::{Herdr, Socket};
 use crate::state::{self, Store};
 use crate::ui;
+
+/// La tab des bancs d'essai. Un pane sans tab n'aurait aucune cible : les
+/// tests d'envoi n'auraient alors rien à vérifier.
+#[cfg(test)]
+const TEST_TAB: &str = "w1:t1";
 
 /// Sauvegarde ~500 ms après la dernière frappe.
 ///
@@ -33,7 +39,8 @@ const WHEEL_STEP: usize = 3;
 ///
 /// L'affichage n'a besoin d'être qu'à peu près à jour : la cible est de toute
 /// façon **re-résolue au moment de l'envoi** (cf. [`App::send`]). Deux
-/// secondes et demie suffisent donc largement, pour deux appels socket.
+/// secondes et demie suffisent donc largement, pour un seul appel socket —
+/// le filtre par tab se lit dans `agent.list`, qui porte déjà le `tab_id`.
 const TARGET_REFRESH: Duration = Duration::from_millis(2500);
 
 /// Les cinq commandes. Rien d'autre — il n'y a pas de touche pour quitter :
@@ -84,20 +91,33 @@ pub struct App {
     /// Le serveur herdr, derrière une indirection pour que les tests puissent
     /// lui substituer des réponses figées.
     herdr: Box<dyn Herdr>,
-    /// Où vit ce pane : sa tab d'abord, son workspace ensuite. C'est l'ordre
-    /// de préférence de la cible par défaut.
-    home: Home,
-    /// Agents joignables, rafraîchis toutes les [`TARGET_REFRESH`].
+    /// La tab où ce pane est né, telle que herdr la lui a dite au spawn.
+    ///
+    /// C'est **la** clé du plugin : elle nomme le fichier d'état, borne les
+    /// cibles d'envoi et suffixe l'export. Figée : un pane déplacé vers une
+    /// autre tab (`pane.move`) garde donc son buffer et ses cibles d'origine
+    /// — limite connue, assumée (§9 du DESIGN).
+    tab_id: Option<String>,
+    /// Agents de cette tab, rafraîchis toutes les [`TARGET_REFRESH`].
     targets: Vec<Target>,
     /// Index de la cible dans `targets`.
     target: Option<usize>,
-    /// Dernière cible retenue sur disque : *(libellé de workspace, agent)*.
-    remembered: Option<(String, String)>,
 }
 
 impl App {
     pub fn new() -> Self {
-        let mut store = Store::from_env();
+        // La tab avant tout le reste : c'est elle qui nomme le fichier.
+        let tab_id = env("HERDR_TAB_ID");
+        let mut store = Store::from_env(tab_id.as_deref());
+        let herdr: Box<dyn Herdr> = Box::new(Socket);
+
+        // Le ménage passe **avant** le chargement : ce qu'on efface ne doit
+        // jamais être ce qu'on est en train d'ouvrir.
+        purge_legacy();
+        if let Some(store) = store.as_ref() {
+            sweep_orphans(herdr.as_ref(), store.path());
+        }
+
         let text = store.as_mut().map(Store::load).unwrap_or_default();
 
         let mut app = Self {
@@ -114,20 +134,16 @@ impl App {
             last_beat: Instant::now(),
             last_watch: Instant::now(),
             last_targets: Instant::now(),
-            pane_id: std::env::var("HERDR_PANE_ID").ok().filter(|s| !s.is_empty()),
-            herdr: Box::new(Socket),
-            home: Home {
-                tab_id: env("HERDR_TAB_ID"),
-                workspace_id: env("HERDR_WORKSPACE_ID"),
-            },
+            pane_id: env("HERDR_PANE_ID"),
+            herdr,
+            tab_id,
             targets: Vec::new(),
             target: None,
-            remembered: state::load_target(),
         };
         app.stamp();
-        // La barre doit afficher une cible dès le premier rendu : sans ça elle
-        // annoncerait « aucun agent » pendant les deux premières secondes et
-        // demie, ce qui se lit comme une panne.
+        // La barre doit être juste dès le premier rendu : sans ça `^E`
+        // apparaîtrait deux secondes et demie après l'ouverture, en décalant
+        // ce qui est déjà sous le doigt.
         app.refresh_targets();
         app
     }
@@ -157,10 +173,11 @@ impl App {
             last_targets: Instant::now(),
             pane_id: None,
             herdr,
-            home: Home::default(),
+            // Les tests vivent dans une tab, comme un vrai pane : sans clé,
+            // il n'y aurait aucune cible et rien à vérifier.
+            tab_id: Some(TEST_TAB.to_owned()),
             targets: Vec::new(),
             target: None,
-            remembered: None,
         }
     }
 
@@ -174,7 +191,10 @@ impl App {
             .map(|(text, _)| text.as_str());
         // Emprunt de champ à champ : `current_target` emprunterait `self`
         // entier, ce que `&mut self.scroll` interdit dans le même appel.
-        let target = self.target.and_then(|i| self.targets.get(i));
+        let targets = ui::Targets {
+            current: self.target.and_then(|i| self.targets.get(i)),
+            count: self.targets.len(),
+        };
 
         let geom = ui::draw(
             frame,
@@ -183,7 +203,7 @@ impl App {
             &mut self.scroll,
             status,
             self.buf.is_empty(),
-            target,
+            targets,
         );
         self.buttons = geom.buttons;
         self.body = geom.body;
@@ -361,7 +381,7 @@ impl App {
 
     fn export(&mut self) {
         let text = self.buf.text();
-        match state::export(&text) {
+        match state::export(&text, self.tab_id.as_deref()) {
             Ok(path) => self.say(path.display().to_string()),
             Err(e) => self.say(format!("export impossible : {e}")),
         }
@@ -401,13 +421,8 @@ impl App {
             return;
         }
 
-        state::save_target(&target.workspace_label, &target.agent);
-        self.remembered = Some((target.workspace_label.clone(), target.agent.clone()));
         self.stash_and_clear(text);
-        self.say(format!(
-            "envoyé → {}·{} · ^Z annule",
-            target.agent, target.workspace_label
-        ));
+        self.say(format!("envoyé → {} · ^Z annule", target.agent));
 
         // Basculer chez l'agent est la fin du geste : déposer, relire,
         // soumettre. Sans ça il faudrait aller chercher le pane à la main,
@@ -430,7 +445,13 @@ impl App {
     /// rôle. Un message la dirait deux fois — et surtout, un message prend la
     /// place des boutons pendant trois secondes, donc masquerait la zone qu'on
     /// est en train de manipuler et rendrait le cyclage au clic impraticable.
+    /// En dessous de deux cibles, il n'y a nulle part où aller : la touche et
+    /// le clic sont **inertes**, sans message — cohérent avec le reste du
+    /// cyclage, qui n'a jamais de retour.
     fn cycle_target(&mut self) {
+        if self.targets.len() < 2 {
+            return;
+        }
         self.target = agents::next(&self.targets, self.target);
     }
 
@@ -502,30 +523,23 @@ impl App {
     /// doigts de l'utilisateur entre deux rafraîchissements.
     ///
     /// Une réponse manquante laisse la liste précédente en place : un socket
-    /// qui hoquette ne doit pas afficher « aucun agent » une demi-seconde.
+    /// qui hoquette ne doit pas faire disparaître `^E` de la barre une
+    /// demi-seconde, en décalant ce qui est sous le doigt.
     fn refresh_targets(&mut self) {
-        let (Some(agents_json), Some(workspaces_json)) =
-            (self.herdr.agent_list(), self.herdr.workspace_list())
-        else {
+        let Some(agents_json) = self.herdr.agent_list() else {
             return;
         };
         let kept = self.current_target().map(|t| t.pane_id.clone());
         self.targets = agents::targets(
             &agents_json,
-            &workspaces_json,
+            self.tab_id.as_deref(),
             self.pane_id.as_deref(),
         );
+        // À défaut, la première : l'ordre est stable, donc « la première »
+        // désigne toujours le même agent d'un rafraîchissement à l'autre.
         self.target = kept
             .and_then(|id| self.targets.iter().position(|t| t.pane_id == id))
-            .or_else(|| {
-                agents::pick_default(
-                    &self.targets,
-                    &self.home,
-                    self.remembered
-                        .as_ref()
-                        .map(|(label, agent)| (label.as_str(), agent.as_str())),
-                )
-            });
+            .or_else(|| (!self.targets.is_empty()).then_some(0));
     }
 
     pub fn heartbeat(&mut self) {
@@ -551,6 +565,45 @@ impl App {
 /// Une variable d'environnement non vide.
 fn env(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
+}
+
+/// Efface les vestiges de l'époque du buffer global (§3.5 du plan).
+///
+/// L'ancien `scratchpad.txt` ne part que du state dir de herdr : dans le
+/// répertoire de repli, ce nom est celui du buffer d'un binaire lancé à la
+/// main, qui n'a jamais été global. Les deux `target.txt`, eux, partent.
+fn purge_legacy() {
+    for dir in state::state_dirs() {
+        state::purge_legacy_target(&dir);
+    }
+    if let Some(dir) = state::herdr_state_dir() {
+        state::purge_legacy(&dir);
+    }
+}
+
+/// Supprime les buffers dont la tab n'existe plus, dans les deux répertoires.
+///
+/// Au démarrage seulement, jamais dans le rafraîchissement : c'est une corvée,
+/// pas une horloge.
+fn sweep_orphans(herdr: &dyn Herdr, own: &Path) {
+    let Some(live) = live_tabs(herdr) else {
+        return;
+    };
+    for dir in state::state_dirs() {
+        state::sweep_orphans(&dir, &live, own);
+    }
+}
+
+/// Les tabs vivantes, ou `None` pour s'abstenir de tout ménage.
+///
+/// Deux abstentions, une seule raison : **une liste vide n'est jamais une
+/// information**. Un serveur muet ou une réponse en erreur rendraient tous les
+/// buffers orphelins d'un coup, et le ménage effacerait le travail de toutes
+/// les tabs pour cause de panne.
+fn live_tabs(herdr: &dyn Herdr) -> Option<Vec<String>> {
+    let json = herdr.tab_list()?;
+    let live = agents::live_tab_ids(&json);
+    (!live.is_empty()).then_some(live)
 }
 
 /// Taille lisible. Les tailles qui comptent ici vont de l'octet au méga-octet.
@@ -587,7 +640,7 @@ mod tests {
     #[derive(Default)]
     struct FakeHerdr {
         agents: String,
-        workspaces: String,
+        tabs: String,
         /// Message d'erreur à rendre au dépôt, si on veut simuler un échec.
         refuse: Option<String>,
         sent: std::cell::RefCell<Vec<(String, String)>>,
@@ -601,8 +654,8 @@ mod tests {
         fn agent_list(&self) -> Option<String> {
             (**self).agent_list()
         }
-        fn workspace_list(&self) -> Option<String> {
-            (**self).workspace_list()
+        fn tab_list(&self) -> Option<String> {
+            (**self).tab_list()
         }
         fn send_input(&self, pane_id: &str, text: &str) -> Result<(), String> {
             (**self).send_input(pane_id, text)
@@ -620,8 +673,8 @@ mod tests {
         fn agent_list(&self) -> Option<String> {
             Some(self.agents.clone())
         }
-        fn workspace_list(&self) -> Option<String> {
-            Some(self.workspaces.clone())
+        fn tab_list(&self) -> Option<String> {
+            Some(self.tabs.clone())
         }
         fn send_input(&self, pane_id: &str, text: &str) -> Result<(), String> {
             if let Some(e) = &self.refuse {
@@ -637,35 +690,35 @@ mod tests {
         }
     }
 
-    fn agents_json(entries: &[(&str, &str, &str, &str)]) -> String {
+    fn agents_json(entries: &[(&str, &str, &str)]) -> String {
         let list: Vec<serde_json::Value> = entries
             .iter()
-            .map(|(pane_id, agent, tab_id, workspace_id)| {
+            .map(|(pane_id, agent, tab_id)| {
                 serde_json::json!({
-                    "pane_id": pane_id, "agent": agent,
-                    "tab_id": tab_id, "workspace_id": workspace_id,
+                    "pane_id": pane_id, "agent": agent, "tab_id": tab_id,
                 })
             })
             .collect();
         serde_json::json!({ "result": { "agents": list } }).to_string()
     }
 
-    fn workspaces_json(entries: &[(&str, &str)]) -> String {
-        let list: Vec<serde_json::Value> = entries
+    fn tabs_json(ids: &[&str]) -> String {
+        let list: Vec<serde_json::Value> = ids
             .iter()
-            .map(|(id, label)| serde_json::json!({ "workspace_id": id, "label": label }))
+            .map(|id| serde_json::json!({ "tab_id": id }))
             .collect();
-        serde_json::json!({ "result": { "workspaces": list } }).to_string()
+        serde_json::json!({ "result": { "tabs": list } }).to_string()
     }
 
-    /// Deux agents joignables, `w1:p1` (claude·un) et `w2:p1` (codex·deux).
+    /// Deux agents dans **la même tab**, `w1:p1` (claude) et `w1:p2` (codex) :
+    /// ils partagent donc ce buffer et ne changent que la destination.
     fn two_agents(refuse: Option<&str>) -> FakeHerdr {
         FakeHerdr {
             agents: agents_json(&[
-                ("w1:p1", "claude", "w1:t1", "w1"),
-                ("w2:p1", "codex", "w2:t1", "w2"),
+                ("w1:p1", "claude", TEST_TAB),
+                ("w1:p2", "codex", TEST_TAB),
             ]),
-            workspaces: workspaces_json(&[("w1", "un"), ("w2", "deux")]),
+            tabs: tabs_json(&[TEST_TAB]),
             refuse: refuse.map(str::to_owned),
             ..Default::default()
         }
@@ -688,7 +741,7 @@ mod tests {
             text,
             boxed(FakeHerdr {
                 agents: agents_json(&[]),
-                workspaces: workspaces_json(&[]),
+                tabs: tabs_json(&[TEST_TAB]),
                 ..Default::default()
             }),
         );
@@ -918,7 +971,7 @@ mod tests {
         let mut app = wired("à envoyer", None);
         app.on_key(ctrl('e'));
         assert_eq!(text_of(&app), "");
-        assert!(status_of(&app).starts_with("envoyé → claude·un"), "{}", status_of(&app));
+        assert!(status_of(&app).starts_with("envoyé → claude"), "{}", status_of(&app));
     }
 
     /// Le dépôt est un **déplacement** : `Ctrl+Z` doit le rattraper, comme un
@@ -959,8 +1012,8 @@ mod tests {
 
         // L'agent visé ferme son pane ; un autre reste joignable.
         app.herdr = boxed(FakeHerdr {
-            agents: agents_json(&[("w2:p1", "codex", "w2:t1", "w2")]),
-            workspaces: workspaces_json(&[("w2", "deux")]),
+            agents: agents_json(&[("w1:p2", "codex", TEST_TAB)]),
+            tabs: tabs_json(&[TEST_TAB]),
             ..Default::default()
         });
         app.on_key(ctrl('e'));
@@ -1063,8 +1116,8 @@ mod tests {
         assert_eq!(app.current_target().unwrap().agent, "codex");
     }
 
-    /// Un `agent.list` muet ne doit pas faire disparaître la barre : mieux
-    /// vaut une liste un peu vieille qu'un « aucun agent » clignotant.
+    /// Un `agent.list` muet ne doit pas faire disparaître le bouton d'envoi :
+    /// mieux vaut une liste un peu vieille qu'une barre clignotante.
     #[test]
     fn un_serveur_muet_laisse_la_liste_precedente_en_place() {
         struct Muet;
@@ -1072,7 +1125,7 @@ mod tests {
             fn agent_list(&self) -> Option<String> {
                 None
             }
-            fn workspace_list(&self) -> Option<String> {
+            fn tab_list(&self) -> Option<String> {
                 None
             }
             fn send_input(&self, _: &str, _: &str) -> Result<(), String> {
@@ -1110,7 +1163,7 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         });
         assert_eq!(text_of(&app), "");
-        assert!(status_of(&app).contains("codex·deux"), "{}", status_of(&app));
+        assert!(status_of(&app).contains("codex"), "{}", status_of(&app));
     }
 
     #[test]
@@ -1133,8 +1186,8 @@ mod tests {
         let mut app = App::with_herdr(
             "x",
             boxed(FakeHerdr {
-                agents: agents_json(&[("w1:p9", "claude", "w1:t1", "w1")]),
-                workspaces: workspaces_json(&[("w1", "un")]),
+                agents: agents_json(&[("w1:p9", "claude", TEST_TAB)]),
+                tabs: tabs_json(&[TEST_TAB]),
                 ..Default::default()
             }),
         );
@@ -1143,40 +1196,96 @@ mod tests {
         assert!(app.current_target().is_none());
     }
 
-    /// Première préférence : l'agent de la tab de ce pane — « l'agent du pane
-    /// courant », celui d'où le scratchpad a été ouvert.
+    /// La cible par défaut est la première de ma tab, par `pane_id`. L'ordre
+    /// étant stable, « la première » désigne toujours le même agent.
     #[test]
-    fn la_cible_par_defaut_est_l_agent_de_la_tab_courante() {
-        let herdr = FakeHerdr {
-            // Deux agents dans le MÊME workspace, dans deux tabs : c'est le
-            // cas où la préférence par workspace se trompait de voisin.
-            agents: agents_json(&[
-                ("w3:p1", "claude", "w3:t1", "w3"),
-                ("w3:p2", "claude", "w3:t2", "w3"),
-            ]),
-            workspaces: workspaces_json(&[("w3", "trois")]),
-            ..Default::default()
-        };
-        let mut app = App::with_herdr("x", boxed(herdr));
-        app.home = Home {
-            tab_id: Some("w3:t2".into()),
-            workspace_id: Some("w3".into()),
-        };
-        app.refresh_targets();
-        assert_eq!(app.current_target().unwrap().pane_id, "w3:p2");
+    fn la_cible_par_defaut_est_le_premier_agent_de_ma_tab() {
+        let app = wired("x", None);
+        assert_eq!(app.current_target().unwrap().pane_id, "w1:p1");
     }
 
-    /// À défaut d'agent dans la tab, on retombe sur le workspace.
+    /// Le cloisonnement, vu de l'application : un agent qui vit ailleurs
+    /// n'est pas joignable, et le bouton d'envoi n'existe donc pas.
     #[test]
-    fn sans_agent_dans_la_tab_la_cible_par_defaut_reste_le_workspace() {
-        let mut app = wired("x", None);
-        app.home = Home {
-            tab_id: Some("w2:t9".into()),
-            workspace_id: Some("w2".into()),
-        };
-        app.target = None;
+    fn un_agent_d_une_autre_tab_n_est_jamais_une_cible() {
+        let mut app = App::with_herdr(
+            "précieux",
+            boxed(FakeHerdr {
+                agents: agents_json(&[("w9:p1", "claude", "w9:t9")]),
+                tabs: tabs_json(&[TEST_TAB, "w9:t9"]),
+                ..Default::default()
+            }),
+        );
         app.refresh_targets();
-        assert_eq!(app.current_target().unwrap().agent, "codex");
+
+        assert!(app.targets.is_empty(), "l'agent d'à côté n'est pas chez moi");
+        app.on_key(ctrl('e'));
+        assert_eq!(text_of(&app), "précieux", "rien ne part, rien ne se vide");
+    }
+
+    /// Un seul agent : nulle part où aller, donc rien ne bouge et rien ne
+    /// s'affiche — la zone cible n'existe même pas dans ce cas.
+    #[test]
+    fn ctrl_n_ne_fait_rien_et_ne_dit_rien_avec_un_seul_agent() {
+        let mut app = App::with_herdr(
+            "x",
+            boxed(FakeHerdr {
+                agents: agents_json(&[("w1:p1", "claude", TEST_TAB)]),
+                tabs: tabs_json(&[TEST_TAB]),
+                ..Default::default()
+            }),
+        );
+        app.refresh_targets();
+
+        app.on_key(ctrl('n'));
+        assert_eq!(app.current_target().unwrap().pane_id, "w1:p1");
+        assert!(app.status.is_none(), "le cyclage n'a jamais de retour");
+    }
+
+    // -- ménage des buffers orphelins --------------------------------------
+
+    #[test]
+    fn le_menage_retient_les_tabs_vivantes() {
+        let herdr = std::rc::Rc::new(two_agents(None));
+        assert_eq!(live_tabs(&herdr), Some(vec![TEST_TAB.to_owned()]));
+    }
+
+    /// Une liste vide n'est jamais une information : c'est une panne, et le
+    /// ménage s'abstient plutôt que de déclarer toutes les tabs mortes.
+    #[test]
+    fn le_menage_s_abstient_quand_tab_list_rend_une_liste_vide() {
+        let herdr = std::rc::Rc::new(FakeHerdr {
+            tabs: tabs_json(&[]),
+            ..Default::default()
+        });
+        assert_eq!(live_tabs(&herdr), None);
+    }
+
+    #[test]
+    fn le_menage_s_abstient_quand_le_serveur_est_muet() {
+        struct Muet;
+        impl Herdr for Muet {
+            fn agent_list(&self) -> Option<String> {
+                None
+            }
+            fn tab_list(&self) -> Option<String> {
+                None
+            }
+            fn send_input(&self, _: &str, _: &str) -> Result<(), String> {
+                Err("injoignable".into())
+            }
+            fn focus_agent(&self, _: &str) {}
+        }
+        assert_eq!(live_tabs(&Muet), None);
+    }
+
+    #[test]
+    fn le_menage_s_abstient_sur_du_json_illisible() {
+        let herdr = std::rc::Rc::new(FakeHerdr {
+            tabs: "pas du json".into(),
+            ..Default::default()
+        });
+        assert_eq!(live_tabs(&herdr), None);
     }
 
     /// AltGr ne doit pas non plus déclencher les nouvelles commandes.

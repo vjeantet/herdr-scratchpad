@@ -16,35 +16,39 @@ Tout ce que `DESIGN.md` décrit est implémenté et vérifié sur des panes viva
 | Fonction | Touche | Design |
 | --- | --- | --- |
 | coller / éditer / recharger depuis le fichier | — | §1, §8, §9, §11 |
+| un buffer par tab, ménage des orphelins | — | §8, §9 |
 | copier vers le terminal hôte (OSC 52) | `Ctrl+C` | §5 |
 | vider, avec case de secours à une place | `Ctrl+L` | §7 |
-| exporter un instantané `/tmp/herdr-scratchpad.txt` | `Ctrl+S` | §10 |
+| exporter un instantané `/tmp/herdr-scratchpad-<tab_id>.txt` | `Ctrl+S` | §10 |
 | rattraper le dernier vidage **ou envoi** | `Ctrl+Z` | §7, §14.2 |
 | déposer chez un agent, vider, basculer dessus | `Ctrl+E` | §14 |
-| agent suivant | `Ctrl+N` | §14.5 |
+| agent suivant (à partir de deux dans la tab) | `Ctrl+N` | §14.5 |
 | toggle du pane docké en bas | `prefix+a` | §3 |
 
-`docs/plan-envoi-agent.md` est le plan qui a produit §14. Il est **exécuté** :
-c'est un document d'archive, pas une liste de travaux.
+`docs/plan-envoi-agent.md` (§14) et `docs/plan-buffer-par-tab.md` (§8, §9, §14.4)
+sont les plans qui ont produit ces sections. Ils sont **exécutés** : ce sont des
+documents d'archive, pas des listes de travaux.
 
 ## Points ouverts
 
 Connus, non traités, par ordre de gêne réelle :
 
-1. **Deux agents de même nom dans le même workspace sont indiscernables.**
-   `agents::label` rend `→ claude·wdv` pour `w3:p1` comme pour `w3:p2`. Depuis
-   que le cyclage est muet, passer de l'un à l'autre ne produit donc **aucun
-   changement visible** — et le garde-fou de §14.3 (« lire la destination avant
-   d'appuyer ») ne tient plus dans ce cas. Pistes : un rang (`2/3`), le
-   `terminal_title_stripped` de l'agent, ou le suffixe du `pane_id`. Le tri
-   étant stable, un rang est fiable.
-2. **`prefix+shift+a` n'existe pas.** `DESIGN.md` §3 annonce une variante « tab
+1. **`prefix+shift+a` n'existe pas.** `DESIGN.md` §3 annonce une variante « tab
    dédiée plein écran » ; il n'y a qu'une action au manifeste. Soit
    l'implémenter, soit retirer la promesse du design.
-3. **Pas de cyclage arrière.** Assumé tant qu'il y a deux ou trois agents.
-4. **Scratchpad seul dans sa tab** : rien à qui céder le focus avant
-   `pane close`, donc la fenêtre de 500 ms de l'autosave subsiste (cf. « `pane
-   close` tue sans signal »).
+2. **Pas de cyclage arrière.** Assumé tant qu'il y a deux ou trois agents.
+3. **Un pane déplacé garde la tab de sa naissance.** `HERDR_TAB_ID` est figé au
+   spawn, donc un scratchpad passé à une autre tab par `pane move` continue
+   d'écrire dans le buffer de sa tab d'origine et d'en cibler les agents.
+   Assumé (§9) : résoudre la tab à chaque tour ferait changer le texte sous les
+   yeux au milieu d'un geste.
+
+Ce qui a été résolu par le cloisonnement (2026-08-25) : deux agents de même nom
+sont maintenant discernables au suffixe de leur `pane_id` (`→ claude·p3`), et
+le scratchpad **seul dans sa tab** n'est plus un cas limite mais un
+comportement normal et documenté — un bloc-notes local, sans cible. La fenêtre
+de 500 ms de l'autosave à la fermeture, elle, subsiste dans ce cas (cf. « `pane
+close` tue sans signal »).
 
 ## Boucle de travail
 
@@ -94,13 +98,13 @@ nettoyage est `pane send-keys <agent> ctrl+u`, qui défait le collage.
 | --- | --- |
 | `src/main.rs` | deux vies du binaire : la TUI, ou un mode stdin→stdout pour le lanceur |
 | `src/app.rs` | état, touches, souris, horloges |
-| `src/agents.rs` | cibles d'envoi : croisement JSON, préférence, cyclage, libellé |
+| `src/agents.rs` | cibles d'envoi : filtre par tab, cyclage, libellé, tabs vivantes |
 | `src/buffer.rs` | texte et curseur, édition minimale |
 | `src/ui.rs` | rendu, repliage, géométrie des boutons |
-| `src/state.rs` | persistance texte brut, écriture atomique, surveillance mtime |
+| `src/state.rs` | persistance texte brut par tab, écriture atomique, mtime, ménage |
 | `src/clipboard.rs` | OSC 52 et base64 |
 | `src/launch.rs` | décisions du toggle, en fonctions pures |
-| `src/ipc.rs` | client socket : estampille, `agent.list`, `workspace.list`, dépôt |
+| `src/ipc.rs` | client socket : estampille, `agent.list`, `tab.list`, dépôt |
 | `scripts/open-scratchpad.sh` | enchaînement de commandes herdr, aucune décision |
 
 **Règle** : le script ne décide rien. Toute logique vit dans `launch.rs`, en
@@ -169,12 +173,19 @@ Il **tape** la commande dans le shell du pane, suivie d'Entrée, **sans
 échappement** (`herdr src/cli/pane.rs:1047`). D'où le `exec "$bin"` : `exec`
 remplace le shell, donc le pane meurt avec la TUI.
 
-### La cible d'envoi par défaut se lit dans la **tab**
+### Tout se lit dans la **tab**, et `HERDR_TAB_ID` est figé au spawn
 
-`HERDR_WORKSPACE_ID` ne suffit pas : un workspace porte plusieurs tabs, donc
-plusieurs agents, et « l'agent du pane courant » est celui de la tab — le
-scratchpad naît d'un split du pane focalisé et hérite de sa tab. Le repli sur le
-workspace ne sert qu'au scratchpad seul dans sa tab.
+Le buffer, les cibles d'envoi et le chemin d'export portent tous la clé de la
+tab. `HERDR_WORKSPACE_ID` ne sert plus à rien : un workspace porte plusieurs
+tabs, donc plusieurs agents sans rapport avec celui qu'on regardait.
+
+`agent.list` porte déjà le `tab_id` de chaque agent : le filtre est une
+comparaison de chaînes, pas un appel de plus. Un agent d'une autre tab n'est
+**jamais** une cible, même quand la tab n'en a aucun — pas de repli.
+
+La clé vient de l'environnement, donc elle est **figée au spawn** : `pane move`
+déplace le pane, pas son `HERDR_TAB_ID`. C'est une limite assumée, pas un bug à
+corriger au prochain passage.
 
 ### `keys: []` dépose, il ne soumet pas
 
@@ -292,9 +303,12 @@ dans une `String` sont en **octets** : d'où `byte_offset` dans `buffer.rs`.
 
 ### Plusieurs écrivains sur le fichier d'état
 
-Le design autorise plusieurs panes ouverts. Le fichier temporaire de l'écriture
-atomique porte donc le **pid** — un nom fixe (comme celui de `herdr-notes`) les
-ferait se piétiner.
+Le fichier temporaire de l'écriture atomique porte le **pid** — un nom fixe
+(comme celui de `herdr-notes`) ferait se piétiner deux écrivains. Depuis le
+cloisonnement par tab, c'est devenu une ceinture sans bretelles : un seul
+scratchpad par tab, donc un seul écrivain par fichier. Elle couvre encore le
+repli sans clé, hors herdr, où plusieurs binaires lancés à la main partagent
+bien un `scratchpad.txt`. Ne pas la retirer pour autant.
 
 ## Limites du presse-papier
 
@@ -316,7 +330,14 @@ Ne pas ajouter sans rouvrir `DESIGN.md` :
 - undo de frappe — `Ctrl+Z` appartient au rattrapage du vidage ;
 - confirmation au vidage — la case de secours est la réponse ;
 - markdown rendu, mode preview — c'est `herdr-notes` ;
-- cloisonnement par workspace — le buffer est global, c'est le point ;
+- **buffer global** — renversé le 2026-08-25 : un buffer par tab, c'est le
+  point (§9). Le transit entre tabs passe par `Ctrl+C` ou `Ctrl+S` ;
+- cloisonnement par *agent* — cycler la cible remplacerait le texte à l'écran ;
+- repli de cible sur le workspace quand la tab n'a aucun agent — la destination
+  dépendrait d'un état que rien à l'écran n'explique ;
+- migration de l'ancien buffer global vers une tab — il est supprimé sèchement ;
+- action de manifeste ou mode `--state-path` pour publier le chemin du buffer —
+  une ligne de `cat $D/scratchpad-$HERDR_TAB_ID.txt` dans le README suffit ;
 - touche pour quitter — `prefix+a` referme ;
 - confirmation à l'envoi — la cible affichée en permanence *est* le garde-fou ;
 - message de retour au cyclage — il masquerait la zone cible pendant 3 s, donc
