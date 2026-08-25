@@ -2,7 +2,7 @@
 
 # herdr-scratchpad
 
-### The clipboard that remembers.
+### The scratchpad for Herdr.
 
 A [herdr](https://herdr.dev) pane docked at the bottom of your tab. Paste into
 it, pick things back up, wipe. It saves itself as plain text and comes back
