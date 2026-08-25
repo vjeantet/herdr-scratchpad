@@ -4,9 +4,9 @@
 
 ### The clipboard that remembers.
 
-A [herdr](https://herdr.dev) pane docked at the bottom where you paste, pick
-things back up, and wipe. Not a notebook: a **transit** tool. The text saves
-itself as plain text and comes back after a restart.
+A [herdr](https://herdr.dev) pane docked at the bottom of your tab. Paste into
+it, pick things back up, wipe. It saves itself as plain text and comes back
+after a restart.
 
 <img alt="Rust" src="https://img.shields.io/badge/Rust-self--contained_crate-orange?logo=rust&logoColor=white">
 <img alt="herdr" src="https://img.shields.io/badge/herdr-%E2%89%A5%200.8-5865a3">
@@ -14,6 +14,27 @@ itself as plain text and comes back after a restart.
 <img alt="License" src="https://img.shields.io/badge/license-MIT-blue">
 
 </div>
+
+```
+ fix the flaky test in src/state.rs — it only fails when the mtime
+ lands in the same second as the write. I think the guard has to
+ compare contents, not just the timestamp.
+
+ ^C copy  ^L clear  ^Z undo  ^E emit to agent  → claude·p3
+```
+
+## What it's for
+
+Mostly: **writing the prompt before sending it.** An agent's input box is a bad
+place to compose ten lines — Enter submits, editing is awkward, and a
+half-finished thought sits one keystroke away from being sent. Write it here
+instead, reread it, and `Ctrl+E` drops it into the agent's box *without*
+pressing Enter for you. You land in front of it and submit when you mean to.
+
+The rest is what a scratch buffer has always been for: a stack trace to keep
+while you change tabs, a command you retype twice a day, three lines of output
+you want on your laptop's clipboard even though herdr runs on a box across the
+room.
 
 **One buffer per tab.** A tab's scratchpad has its own text and talks to that
 tab's agents, not to the ones next door. What you see, what you edit and what
@@ -75,6 +96,20 @@ Then `prefix+a` opens the pane docked at the bottom, focuses it if it's already
 open, and closes it if it's focused — one key for all three. A pane left dead
 by a server restart gets replaced rather than duplicated.
 
+## The first minute
+
+1. **`prefix+a`.** The pane opens across the bottom of the tab, cursor already
+   in it.
+2. **Type, or paste.** It's a plain text area, always editable — there's no
+   mode to enter first. Your terminal's usual paste (`Ctrl+Shift+V`, `Cmd+V`)
+   works and arrives as one block, however many lines it is.
+3. **`Ctrl+E`.** The text lands in your agent's input box and you land there
+   with it. Nothing was submitted: reread it, then press Enter yourself.
+4. **`prefix+a`** again for an empty scratchpad — or `Ctrl+Z` first, if you
+   want that text back.
+
+Nothing to save, nothing to name, nothing to clean up afterwards.
+
 ## Keys
 
 | Key | Button | Action |
@@ -93,6 +128,11 @@ These are the combinations your fingers already know, each with its usual
 meaning. The buttons in the bottom bar do the same thing on click or touch —
 except `Ctrl+S`, which has no button: it drops a file you'll go read somewhere
 else, that's not a finger gesture.
+
+`Ctrl+C` **copies here, it doesn't interrupt** — the pane runs in raw mode, and
+there's no job in it to kill anyway. Same for `Ctrl+S`, which writes a file
+rather than freezing the terminal, and `Ctrl+Z`, which undoes rather than
+suspending.
 
 There is **no quit key**: `prefix+a` closes the pane, mirroring the gesture
 that opened it — and it's also what reopens it from the agent `Ctrl+E` just
