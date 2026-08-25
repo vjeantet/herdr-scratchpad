@@ -13,15 +13,9 @@ after a restart.
 <img alt="Platforms" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux-supported-2ea44f">
 <img alt="License" src="https://img.shields.io/badge/license-MIT-blue">
 
+<img alt="The scratchpad docked at the bottom of a herdr tab, below the agent it emits to" src="docs/screenshot.png" width="900">
+
 </div>
-
-```
- fix the flaky test in src/state.rs — it only fails when the mtime
- lands in the same second as the write. I think the guard has to
- compare contents, not just the timestamp.
-
- ^C copy  ^L clear  ^Z undo  ^E emit to agent  → claude·p3
-```
 
 ## What it's for
 
