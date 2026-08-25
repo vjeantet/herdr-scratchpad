@@ -2,8 +2,17 @@
 name = "herdr-scratchpad"
 version = "0.1.0"
 edition = "2024"
+# Les let-chains (`if … && let Some(x) = …`, src/ui.rs:94) sont stables depuis
+# 1.88 : c'est le plancher réel, pas le 1.85 de l'édition 2024.
+rust-version = "1.88"
 description = "Persistent editable clipboard pane for herdr"
+repository = "https://github.com/vjeantet/herdr-scratchpad"
+homepage = "https://github.com/vjeantet/herdr-scratchpad"
+readme = "README.md"
+keywords = ["herdr", "tui", "clipboard", "scratchpad", "ratatui"]
+categories = ["command-line-utilities"]
 license = "MIT"
+publish = false
 
 [[bin]]
 name = "herdr-scratchpad"

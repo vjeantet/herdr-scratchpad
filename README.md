@@ -1,70 +1,84 @@
+<div align="center">
+
 # herdr-scratchpad
 
-**Le presse-papier qui se souvient.**
+### The clipboard that remembers.
 
-Un panneau [herdr](https://herdr.dev) docké en bas où l'on colle, où l'on
-récupère, et qu'on vide. Pas un carnet : un outil de **transit**. Le texte est
-sauvegardé tout seul, en texte brut, et revient après un redémarrage.
+A [herdr](https://herdr.dev) pane docked at the bottom where you paste, pick
+things back up, and wipe. Not a notebook: a **transit** tool. The text saves
+itself as plain text and comes back after a restart.
 
-**Un buffer par tab** : le scratchpad d'une tab a son texte et parle aux agents
-de cette tab, pas à ceux d'à côté. Ce qu'on voit, ce qu'on édite et ce à quoi
-on parle coïncident.
+<img alt="Rust" src="https://img.shields.io/badge/Rust-self--contained_crate-orange?logo=rust&logoColor=white">
+<img alt="herdr" src="https://img.shields.io/badge/herdr-%E2%89%A5%200.8-5865a3">
+<img alt="Platforms" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux-supported-2ea44f">
+<img alt="License" src="https://img.shields.io/badge/license-MIT-blue">
+
+</div>
 
 ```
-herdr plugin link .
+herdr plugin install vjeantet/herdr-scratchpad
 ```
 
-## Les touches
+**One buffer per tab.** A tab's scratchpad has its own text and talks to that
+tab's agents, not to the ones next door. What you see, what you edit and what
+you talk to all line up.
 
-| Touche | Bouton | Action |
+---
+
+## Keys
+
+| Key | Button | Action |
 | --- | --- | --- |
-| `Ctrl+E` | `^E emit to agent` | dépose le texte chez un agent, vide, et bascule dessus |
-| `Ctrl+N` | `→ claude·p3` | agent suivant de la tab (à partir de deux) |
-| `Ctrl+C` | `^C copy` | copie tout vers le presse-papier de ta machine |
-| `Ctrl+L` | `^L clear` | vide, sans confirmation |
-| `Ctrl+S` | — | écrit `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` |
-| `Ctrl+Z` | `^Z undo` | ramène le dernier contenu vidé ou envoyé |
-| `Ctrl`+flèches | — | saute d'un mot |
-| `Ctrl+Backspace` | — | efface le mot à gauche |
-| `Ctrl+Home` / `Ctrl+End` | — | début / fin du texte |
+| `Ctrl+E` | `^E emit to agent` | drops the text into an agent, wipes, and switches to it |
+| `Ctrl+N` | `→ claude·p3` | next agent in the tab (from two on) |
+| `Ctrl+C` | `^C copy` | copies everything to your own machine's clipboard |
+| `Ctrl+L` | `^L clear` | wipes, no confirmation |
+| `Ctrl+S` | — | writes `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` |
+| `Ctrl+Z` | `^Z undo` | brings back the last wiped or emitted content |
+| `Ctrl`+arrows | — | jump a word |
+| `Ctrl+Backspace` | — | delete the word to the left |
+| `Ctrl+Home` / `Ctrl+End` | — | start / end of the text |
 
-Ce sont les combinaisons que tes doigts connaissent déjà, chacune à sa
-signification habituelle. Les boutons de la barre du bas font la même chose au
-clic ou au doigt — sauf `Ctrl+S`, qui n'a pas de bouton : il dépose un fichier
-qu'on ira lire ailleurs, ce n'est pas un geste au doigt.
+These are the combinations your fingers already know, each with its usual
+meaning. The buttons in the bottom bar do the same thing on click or touch —
+except `Ctrl+S`, which has no button: it drops a file you'll go read somewhere
+else, that's not a finger gesture.
 
-Il n'y a **pas de touche pour quitter** : `prefix+a` referme le pane, geste
-symétrique de celui qui l'a ouvert — et c'est aussi lui qui le rouvre depuis
-l'agent où `Ctrl+E` vient de te poser. Un `Ctrl+Q` sur un panneau qu'on veut
-permanent ne sert qu'à le fermer par erreur.
+There is **no quit key**: `prefix+a` closes the pane, mirroring the gesture
+that opened it — and it's also what reopens it from the agent `Ctrl+E` just
+dropped you on. A `Ctrl+Q` on a pane you want permanent only ever closes it by
+accident.
 
-## Envoyer à un agent
+## Emit to an agent
 
-`Ctrl+E` **dépose** le texte dans la boîte de saisie d'un agent herdr. Il ne
-l'envoie pas : **aucune Entrée n'est tapée**. Tu bascules sur l'agent, tu relis,
-tu soumets toi-même — ou tu effaces. Déposer chez un agent occupé est sans
-danger, le texte attend dans la boîte.
+`Ctrl+E` **drops** the text into a herdr agent's input box. It does not send
+it: **no Enter is typed**. You land on the agent, reread, and submit yourself —
+or wipe it. Dropping into a busy agent is harmless, the text waits in the box.
 
-Un prompt de dix lignes arrive comme **un seul collage**, pas ligne par ligne :
-herdr l'enveloppe dans un *bracketed paste*.
+A ten-line prompt arrives as **a single paste**, not line by line: herdr wraps
+it in a bracketed paste.
 
-Une fois le dépôt confirmé, le scratchpad se vide et **le focus passe sur
-l'agent** — tu atterris devant ton texte, prêt à le relire et à l'envoyer. Le
-vidage est un *déplacement*, pas une copie : `Ctrl+Z` le rattrape comme
-n'importe quel vidage, en revenant par `prefix+a`. **Si l'envoi échoue, rien
-n'est vidé et rien ne bascule** : c'est ce qui rend l'erreur sans conséquence.
+Once the drop is confirmed the scratchpad wipes itself and **focus moves to the
+agent** — you land in front of your text, ready to reread and send. The wipe is
+a *move*, not a copy: `Ctrl+Z` catches it like any other wipe, once you come
+back with `prefix+a`. **If the emit fails, nothing is wiped and nothing
+switches**: that's what makes the error inconsequential.
 
-La destination est affichée en permanence à côté du bouton, `→ claude·wdv` :
-l'agent, puis le workspace. C'est le garde-fou, et il remplace toute
-confirmation — on ne doit jamais appuyer sans pouvoir lire où ça part. `Ctrl+N`
-ou un clic sur la zone passent à l'agent suivant.
+Targets are the agents of the **pane's own tab**, and only those — no fallback
+to the workspace, no last-used, no first-come. A destination you can't explain
+from what's on screen is worse than no destination.
 
-Par défaut la cible est l'agent de la **même tab que le pane** — celui d'où tu
-viens d'ouvrir le scratchpad. À défaut un agent du même workspace, à défaut la
-dernière cible utilisée, à défaut le premier venu. Sans agent du tout, la zone
-affiche `→ aucun agent` et le bouton refuse.
+- **No agent in the tab** — the `^E` button isn't drawn at all, rather than
+  drawn to refuse. The scratchpad is then a local notepad, which is a normal
+  way to use it. `Ctrl+E` says `no agent`.
+- **One agent** — `^E` is there; no target area, since it would only repeat
+  what the button already says.
+- **Two or more** — the destination shows permanently next to the button,
+  `→ claude·p3`: the agent, then the tail of its `pane_id`, which is what tells
+  two `claude` sessions apart. That readout is the guard rail, and it replaces
+  any confirmation. `Ctrl+N` or a click on the area moves to the next agent.
 
-## Ouvrir
+## Open it
 
 ```toml
 # ~/.config/herdr/config.toml
@@ -75,81 +89,83 @@ command = "herdr-scratchpad.open-scratchpad"
 description = "toggle scratchpad"
 ```
 
-`prefix+a` ouvre le pane docké en bas, le focalise s'il est déjà ouvert, le
-ferme s'il est focalisé. Un pane laissé mort par un redémarrage du serveur est
-remplacé plutôt que dupliqué.
+`prefix+a` opens the pane docked at the bottom, focuses it if it's already
+open, closes it if it's focused. A pane left dead by a server restart gets
+replaced rather than duplicated.
 
-## Ce qui le distingue de [`herdr-notes`](https://github.com/alexarthurs/herdr-notes)
+## The two-way channel
 
-Notes est un **carnet** : markdown rendu, mode preview/édition, une note par
-workspace. Les deux cohabitent très bien.
+This is the most useful property, and it comes for free.
 
-Ceci est un **presse-papier** :
-
-- **un seul texte, global** — le même dans tous les workspaces et toutes les
-  tabs, parce qu'on colle depuis le projet A précisément pour récupérer dans le
-  projet B ;
-- **toujours éditable** — pas de mode, pas de touche pour passer en écriture ;
-- **texte brut** — l'état est un `.txt`, pas un JSON.
-
-## Le canal bidirectionnel
-
-C'est la propriété la plus utile, et elle est gratuite.
-
-L'état vit dans `$HERDR_PLUGIN_STATE_DIR/scratchpad-$HERDR_TAB_ID.txt`, en
-clair. Le fichier **est** le texte, sans échappement. `HERDR_TAB_ID` est présent
-dans le pane de l'agent comme dans les autres : il compose le chemin lui-même,
-sans qu'on le lui donne. Donc, depuis le pane d'un agent :
+State lives in `$HERDR_PLUGIN_STATE_DIR/scratchpad-$HERDR_TAB_ID.txt`, in the
+clear. The file **is** the text, no escaping. `HERDR_TAB_ID` is present in an
+agent's pane like in any other: it composes the path itself, without being
+told. So, from an agent's pane:
 
 ```bash
 D=~/.local/state/herdr/plugins/herdr-scratchpad
 
-# lire ce qu'il y a dans le scratchpad de ma tab
+# read what's in my tab's scratchpad
 cat "$D/scratchpad-$HERDR_TAB_ID.txt"
 
-# y déposer quelque chose
+# put something in it
 git log --oneline -20 > "$D/scratchpad-$HERDR_TAB_ID.txt"
 ```
 
-Le pane surveille le fichier et se recharge tout seul quand il change — sauf
-s'il a des frappes non sauvegardées, auquel cas ce que tu tapes gagne. Un agent
-qui écrit ce fichier fait apparaître le texte devant toi ; ce que tu colles dans
-le pane, il peut le lire.
+The pane watches the file and reloads on its own when it changes — unless it
+has unsaved keystrokes, in which case what you type wins. An agent writing that
+file makes text appear in front of you; what you paste into the pane, it can
+read.
 
-Plusieurs panes scratchpad peuvent être ouverts en même temps, un par tab :
-chacun a son fichier, donc son texte. Pour faire passer du texte d'une tab à
-l'autre, `Ctrl+C` ou `Ctrl+S` — un geste explicite.
+Several scratchpad panes can be open at once, one per tab: each has its own
+file, so its own text. To move text from one tab to another, `Ctrl+C` or
+`Ctrl+S` — an explicit gesture.
 
-La clé est figée à l'ouverture du pane : un scratchpad déplacé vers une autre
-tab (`pane move`) garde le buffer et les cibles de sa tab d'origine.
+The key is frozen when the pane opens: a scratchpad moved to another tab
+(`pane move`) keeps its origin tab's buffer and targets.
 
-## Copier, et la limite des 192 Ko
+## Copy, and the 192 KB limit
 
-La copie passe par **OSC 52** : le texte remonte au presse-papier du terminal
-d'où tu es connecté, pas de la machine où tourne herdr. C'est ce qu'il faut en
-SSH, et ça marche sur une machine sans serveur graphique.
+Copying goes through **OSC 52**: the text travels up to the clipboard of the
+terminal you're connected *from*, not of the machine herdr runs on. That's what
+you want over SSH, and it works on a machine with no display server.
 
-herdr plafonne les écritures presse-papier à **192 Ko**
-(`MAX_CLIPBOARD_BYTES`). Au-delà, `Ctrl+C` refuse explicitement et te renvoie
-vers `Ctrl+S` — plutôt que de te laisser coller du vide ailleurs.
+herdr caps clipboard writes at **192 KB** (`MAX_CLIPBOARD_BYTES`). Past that,
+`Ctrl+C` refuses explicitly and points you at `Ctrl+S` — rather than letting
+you paste emptiness somewhere else.
 
-Un **clic dans le texte pose le curseur** ; la molette fait défiler. Il n'y a
-pas de sélection à la souris à l'intérieur du pane, et il n'en faut pas :
-`Ctrl+C` copie **tout**.
+A **click places the cursor**; the wheel scrolls. There's no mouse selection
+inside the pane, and none is needed: `Ctrl+C` copies **everything**.
 
-`Shift`+glisser sélectionne normalement, comme dans n'importe quel pane :
-herdr réserve `Shift`+souris au terminal, et le plugin n'y touche pas.
+`Shift`+drag selects normally, like in any pane: herdr reserves `Shift`+mouse
+for the terminal, and the plugin doesn't touch it.
 
 ## Export
 
-`Ctrl+S` écrit `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` — chemin fixe pour une
-tab, écrasé, affiché 3 secondes dans la barre. Une tab n'écrase donc jamais
-l'instantané d'une autre.
+`Ctrl+S` writes `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` — fixed path for a
+tab, overwritten, shown for 3 seconds in the bar. A tab therefore never
+clobbers another one's snapshot.
 
-Ce n'est pas « sortir le texte » (le fichier d'état s'en charge déjà) : c'est
-**figer un instantané**. Le fichier d'état bouge tout seul ; celui-là non.
+It isn't "getting the text out" (the state file already does that): it's
+**freezing a snapshot**. The state file moves on its own; this one doesn't.
 
-## Construire
+## Not [`herdr-notes`](https://github.com/alexarthurs/herdr-notes)
+
+Notes is a **notebook**: rendered markdown, preview/edit modes, one note per
+workspace. The two live together happily.
+
+This is a **clipboard**:
+
+- **one text per tab** — scoped to what you're looking at, and it's what makes
+  emitting to an agent unambiguous;
+- **always editable** — no mode, no key to switch to writing;
+- **plain text** — the state is a `.txt`, not JSON;
+- **it talks to agents** — the buffer is one key away from an agent's input box.
+
+## Build
+
+Installing from GitHub runs `cargo build --release`, so a **Rust toolchain** is
+required (edition 2024, Rust ≥ 1.88 — the crate uses let-chains). No system dependencies beyond that.
 
 ```
 cargo build --release
@@ -157,8 +173,8 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
-Rust + ratatui, aucune dépendance système. Linux et macOS.
+From a checkout, `herdr plugin link .` registers it in place.
 
-## Licence
+## License
 
 MIT.

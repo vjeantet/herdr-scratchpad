@@ -27,9 +27,16 @@ Conséquences directes, non négociables sans rouvrir la racine :
 
 - pas de markdown rendu, pas de mode preview ;
 - une zone de texte brute **toujours éditable**, sans aucun mode ;
-- **un seul buffer global** — pas de cloisonnement par workspace. Le
-  cloisonnement est une vertu de carnet ; ici on colle depuis le projet A
-  précisément pour récupérer dans le projet B.
+- **un buffer par tab**, et rien de plus fin. Le cloisonnement par *workspace*
+  serait une vertu de carnet ; la tab, elle, est l'unité de ce qu'on regarde —
+  c'est aussi la portée des cibles d'envoi (§14.4), et faire coïncider les deux
+  est ce qui rend `Ctrl+E` lisible. Le transit d'une tab à l'autre reste
+  explicite : `Ctrl+C` ou `Ctrl+S`.
+
+> **Révision du 2026-08-25.** Ce point disait « un seul buffer global — pas de
+> cloisonnement par workspace », et opposait le transit entre projets au
+> cloisonnement. §9 l'a renversé : ce n'est pas le cloisonnement qui gênait le
+> transit, c'est le *workspace* qui était la mauvaise unité.
 
 ## 2. Contexte matériel
 

@@ -10,7 +10,7 @@
 id = "herdr-scratchpad"
 name = "herdr-scratchpad"
 version = "0.1.0"
-description = "Persistent editable clipboard: one text buffer, copied with a single key, saved as plain text."
+description = "Persistent editable clipboard docked at the bottom: one plain-text buffer per tab, copied with a single key, or dropped into an agent's input box."
 min_herdr_version = "0.8.0"
 platforms = ["linux", "macos"]
 
