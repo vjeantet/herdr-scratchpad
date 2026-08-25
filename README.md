@@ -15,15 +15,65 @@ itself as plain text and comes back after a restart.
 
 </div>
 
-```
-herdr plugin install vjeantet/herdr-scratchpad
-```
-
 **One buffer per tab.** A tab's scratchpad has its own text and talks to that
 tab's agents, not to the ones next door. What you see, what you edit and what
 you talk to all line up.
 
 ---
+
+## Install
+
+```
+herdr plugin install vjeantet/herdr-scratchpad
+```
+
+That clones the repo, shows you what it's about to install, and **asks before
+doing anything**. On yes it runs the manifest's build step, then enables the
+plugin. Pass `--yes` to skip the prompt — required when stdin isn't a terminal.
+
+**One prerequisite: a Rust toolchain**, because that build step is
+`cargo build --release` and it runs *on your machine*. **Rust ≥ 1.88** — the
+crate uses let-chains, which the 1.85 of edition 2024 doesn't have. Nothing
+else: no system libraries, no runtime. Linux and macOS.
+
+Check it works before touching any config:
+
+```
+herdr plugin action invoke herdr-scratchpad.open-scratchpad
+```
+
+The pane should appear docked at the bottom of the current tab, focused, ready
+to type in. That command is the whole plugin — the keybinding below just puts
+it on a key.
+
+Removing it is symmetric: `herdr plugin uninstall herdr-scratchpad`.
+`herdr plugin disable herdr-scratchpad` keeps it installed but idle.
+
+## Put it on a key
+
+The plugin ships no keybinding of its own — herdr keeps those in your config,
+where you can see every key you've spent in one place. Add four lines to
+`~/.config/herdr/config.toml` (same path on macOS and Linux, unless you set
+`XDG_CONFIG_HOME`):
+
+```toml
+[[keys.command]]
+key = "prefix+a"
+type = "plugin_action"
+command = "herdr-scratchpad.open-scratchpad"
+description = "toggle scratchpad"
+```
+
+`prefix` is herdr's prefix key, `ctrl+b` out of the box — so `prefix+a` means
+**Ctrl+B, then A**. Pick another letter if `a` is taken; `herdr config check`
+tells you if the file is malformed, and `prefix+?` lists what's already bound.
+
+**You don't have to restart herdr**: `prefix+shift+r` reloads `config.toml` in
+the running server, session and all.
+
+Then `prefix+a` opens the pane docked at the bottom, focuses it if it's already
+open, and closes it if it's focused — one key for all three. A pane left dead
+by a server restart gets replaced rather than duplicated.
 
 ## Keys
 
@@ -77,21 +127,6 @@ from what's on screen is worse than no destination.
   `→ claude·p3`: the agent, then the tail of its `pane_id`, which is what tells
   two `claude` sessions apart. That readout is the guard rail, and it replaces
   any confirmation. `Ctrl+N` or a click on the area moves to the next agent.
-
-## Open it
-
-```toml
-# ~/.config/herdr/config.toml
-[[keys.command]]
-key = "prefix+a"
-type = "plugin_action"
-command = "herdr-scratchpad.open-scratchpad"
-description = "toggle scratchpad"
-```
-
-`prefix+a` opens the pane docked at the bottom, focuses it if it's already
-open, closes it if it's focused. A pane left dead by a server restart gets
-replaced rather than duplicated.
 
 ## The two-way channel
 
@@ -162,10 +197,10 @@ This is a **clipboard**:
 - **plain text** — the state is a `.txt`, not JSON;
 - **it talks to agents** — the buffer is one key away from an agent's input box.
 
-## Build
+## Hacking on it
 
-Installing from GitHub runs `cargo build --release`, so a **Rust toolchain** is
-required (edition 2024, Rust ≥ 1.88 — the crate uses let-chains). No system dependencies beyond that.
+From a checkout, `herdr plugin link .` registers the working tree in place —
+no copy, no reinstall, edits land where herdr looks.
 
 ```
 cargo build --release
@@ -173,7 +208,12 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
-From a checkout, `herdr plugin link .` registers it in place.
+All three green before shipping. One catch worth knowing: **close and reopen
+the pane after every `cargo build --release`**. An already-open scratchpad keeps
+running the old binary, so you end up testing the behaviour you just changed.
+
+`DESIGN.md` holds the what and the why; `CLAUDE.md` the how and the traps.
+Both are in French.
 
 ## License
 
