@@ -17,8 +17,15 @@ use crate::agents::{self, Target};
 use crate::app::{Action, Command};
 
 /// Aide affichée quand le buffer est vide. Disparaît à la première frappe.
+///
+/// C'est le seul endroit qui enseigne les deux touches sans bouton, `^S` et
+/// `Esc` — et le buffer vide est justement le moment où l'on referme le plus
+/// volontiers. Les y faire tenir coûte le libellé long de `^E`, que le bouton
+/// juste en dessous porte de toute façon en permanence : la ligne doit rester
+/// sous les 80 colonnes d'un terminal étroit (§2 du DESIGN), sinon elle est
+/// tronquée en son milieu.
 const EMPTY_HINT: &str =
-    "Paste here. ^E emit to agent · ^C copy · ^L clear · ^S file · ^Z undo";
+    "Paste here. ^E emit · ^C copy · ^L clear · ^S file · ^Z undo · Esc close";
 
 /// Part de la barre réservée à la zone cible, et son plancher.
 ///
@@ -366,6 +373,27 @@ mod tests {
 
     fn at(x: u16, y: u16) -> Position {
         Position { x, y }
+    }
+
+    /// L'aide n'est pas repliée : ce qui dépasse est coupé, et une touche
+    /// coupée en deux n'enseigne rien.
+    #[test]
+    fn the_empty_hint_fits_a_narrow_terminal() {
+        assert!(
+            columns(EMPTY_HINT) <= 80,
+            "l'aide déborde d'un terminal de 80 colonnes et sera tronquée : {} colonnes",
+            columns(EMPTY_HINT)
+        );
+    }
+
+    /// Les deux touches sans bouton n'ont que cette ligne pour se faire
+    /// connaître.
+    #[test]
+    fn the_empty_hint_teaches_the_buttonless_keys() {
+        assert!(
+            EMPTY_HINT.contains("^S") && EMPTY_HINT.contains("Esc"),
+            "`^S` et `Esc` n'ont pas de bouton : les retirer de l'aide les rendrait introuvables"
+        );
     }
 
     #[test]

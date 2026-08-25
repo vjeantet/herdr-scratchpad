@@ -43,8 +43,10 @@ const WHEEL_STEP: usize = 3;
 /// le filtre par tab se lit dans `agent.list`, qui porte déjà le `tab_id`.
 const TARGET_REFRESH: Duration = Duration::from_millis(2500);
 
-/// Les cinq commandes. Rien d'autre — il n'y a pas de touche pour quitter :
-/// `prefix+a` referme le pane, geste symétrique de celui qui l'a ouvert.
+/// Les cinq commandes. Rien d'autre : `Esc` ferme le pane mais n'agit pas sur
+/// le texte, donc elle n'est pas une commande — elle ne passe pas par
+/// [`App::run`],
+/// n'a pas de bouton et ne laisse aucun message derrière elle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
     /// Dépose le texte chez un agent, **sans le soumettre**, et vide.
@@ -80,6 +82,12 @@ pub struct App {
     buttons: Vec<(Action, Rect)>,
     body: Rect,
     total_rows: usize,
+    /// `Esc` a été pressée : la boucle d'événements doit rendre la main.
+    ///
+    /// La fermeture n'est pas demandée à herdr — le pane est lancé en `exec`,
+    /// donc il meurt avec le processus. Sortir de la boucle *est* la
+    /// fermeture, et elle passe par `finalize`, donc par une sauvegarde.
+    quit: bool,
 
     dirty: bool,
     last_edit: Instant,
@@ -129,6 +137,7 @@ impl App {
             buttons: Vec::new(),
             body: Rect::default(),
             total_rows: 0,
+            quit: false,
             dirty: false,
             last_edit: Instant::now(),
             last_beat: Instant::now(),
@@ -166,6 +175,7 @@ impl App {
             buttons: Vec::new(),
             body: Rect::default(),
             total_rows: 0,
+            quit: false,
             dirty: false,
             last_edit: Instant::now(),
             last_beat: Instant::now(),
@@ -285,6 +295,11 @@ impl App {
             KeyCode::End => self.buf.end(),
             KeyCode::PageUp => self.buf.up(page),
             KeyCode::PageDown => self.buf.down(page),
+            // La convention des plugins herdr (`Esc` recule d'un cran, et
+            // ferme quand il n'y a plus rien à annuler). Ici la pile est vide
+            // à tous les étages — pas de mode, pas de sélection, pas de
+            // recherche — donc `Esc` ferme directement.
+            KeyCode::Esc => self.quit = true,
             _ => {}
         }
     }
@@ -587,6 +602,11 @@ impl App {
         if let Some(id) = self.pane_id.as_deref() {
             crate::ipc::stamp(id);
         }
+    }
+
+    /// Vrai quand `Esc` a demandé la fermeture.
+    pub fn quit_requested(&self) -> bool {
+        self.quit
     }
 
     /// Dernière sauvegarde en sortie.
@@ -1050,17 +1070,59 @@ mod tests {
         assert_eq!(app.scroll, 0);
     }
 
+    /// `Esc` est la **seule** sortie : aucune lettre ne ferme le pane, pas même
+    /// celles que d'autres outils y consacrent.
     #[test]
-    fn there_is_no_quit_key() {
+    fn no_letter_key_closes_the_pane() {
         let mut app = App::headless("");
         for c in ['q', 'x', 'd', 'w'] {
             app.on_key(ctrl(c));
             app.on_key(key(KeyCode::Char(c)));
         }
+        assert!(
+            !app.quit_requested(),
+            "une lettre a fermé le pane : `Esc` doit rester la seule sortie"
+        );
+        assert_eq!(
+            text_of(&app),
+            "qxdw",
+            "les lettres ordinaires doivent s'être tapées, pas être avalées"
+        );
+    }
+
+    #[test]
+    fn esc_closes_the_pane() {
+        let mut app = App::headless("du texte");
         app.on_key(key(KeyCode::Esc));
-        // Rien à assurer sinon que rien n'a paniqué et que le texte a reçu les
-        // caractères ordinaires : aucune commande ne quitte.
-        assert_eq!(text_of(&app), "qxdw");
+        assert!(
+            app.quit_requested(),
+            "`Esc` doit demander la fermeture : c'est la convention des plugins herdr"
+        );
+    }
+
+    /// `Esc` ne touche pas au texte en partant : le buffer est persisté par
+    /// tab, et c'est ce qui permet à la fermeture de se passer de confirmation.
+    #[test]
+    fn esc_leaves_the_text_alone() {
+        let mut app = App::headless("du texte");
+        app.on_key(key(KeyCode::Esc));
+        assert_eq!(
+            text_of(&app),
+            "du texte",
+            "fermer n'est pas vider : le texte doit être là au rouvrir"
+        );
+    }
+
+    /// La branche `Ctrl` rend la main avant le `match` ordinaire : `Ctrl+Esc`
+    /// y est donc avalée. Vérifié pour que la sortie reste un geste franc.
+    #[test]
+    fn ctrl_esc_does_not_close_the_pane() {
+        let mut app = App::headless("");
+        app.on_key(ctrl_code(KeyCode::Esc));
+        assert!(
+            !app.quit_requested(),
+            "seule `Esc` seule ferme : une combinaison ne doit pas suffire"
+        );
     }
 
     #[test]

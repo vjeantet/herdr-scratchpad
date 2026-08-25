@@ -131,6 +131,15 @@ fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut app::App) -> io::Resul
             }
         }
 
+        // `Esc` : rendre la main suffit à fermer le pane, puisque le lanceur
+        // a remplacé son shell par `exec "$bin"`. On sort **avant** les
+        // horloges — la sauvegarde est faite par `finalize`, et ré-estampiller
+        // un pane qu'on est en train de quitter ne servirait qu'à le faire
+        // paraître vivant une seconde de trop.
+        if app.quit_requested() {
+            return Ok(());
+        }
+
         // Pompées à **chaque** tour, pas seulement quand l'attente expire :
         // une saisie soutenue (répétition de touche, long collage) affamerait
         // sinon l'estampille jusqu'à ce que le lanceur déclare le pane mort et

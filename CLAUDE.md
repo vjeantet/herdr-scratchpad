@@ -33,6 +33,7 @@ Tout ce que `DESIGN.md` décrit est implémenté et vérifié sur des panes viva
 | déposer chez un agent, vider, basculer dessus | `Ctrl+E` | §14 |
 | agent suivant (à partir de deux dans la tab) | `Ctrl+N` | §14.5 |
 | toggle du pane docké en bas | `prefix+a` | §3 |
+| fermer depuis le pane | `Esc` | §4 |
 
 `docs/plan-envoi-agent.md` (§14) et `docs/plan-buffer-par-tab.md` (§8, §9, §14.4)
 sont les plans qui ont produit ces sections. Ils sont **exécutés** : ce sont des
@@ -57,7 +58,9 @@ sont maintenant discernables au suffixe de leur `pane_id` (`→ claude·p3`), et
 le scratchpad **seul dans sa tab** n'est plus un cas limite mais un
 comportement normal et documenté — un bloc-notes local, sans cible. La fenêtre
 de 500 ms de l'autosave à la fermeture, elle, subsiste dans ce cas (cf. « `pane
-close` tue sans signal »).
+close` tue sans signal ») — sauf si l'on ferme par `Esc`, qui sort par
+`finalize` et sauvegarde donc avant de rendre la main, sans dépendre d'aucun
+événement de focus.
 
 ## Boucle de travail
 
@@ -266,6 +269,11 @@ immédiate — herdr transmet l'événement aux panes qui demandent `?1004h`
 Limite connue : un scratchpad **seul dans sa tab** n'a nulle part où céder le
 focus, donc la fenêtre de temporisation (500 ms) subsiste dans ce cas précis.
 
+`Esc` ne passe pas par là du tout : la TUI sort de sa boucle, `main::tui`
+appelle `finalize`, et le pane meurt avec le processus parce que le lanceur a
+remplacé son shell par `exec "$bin"`. Aucun appel socket, aucune temporisation
+— c'est le chemin de fermeture le plus sûr des deux.
+
 ### Re-lister après une fermeture
 
 Un instantané de `pane list` périme dès qu'un pane disparaît, et le cadavre
@@ -353,7 +361,10 @@ Ne pas ajouter sans rouvrir `DESIGN.md` :
 - migration de l'ancien buffer global vers une tab — il est supprimé sèchement ;
 - action de manifeste ou mode `--state-path` pour publier le chemin du buffer —
   une ligne de `cat $D/scratchpad-$HERDR_TAB_ID.txt` dans le README suffit ;
-- touche pour quitter — `prefix+a` referme ;
+- **`Ctrl+Q`** — mais la « touche pour quitter » elle-même a été renversée le
+  2026-08-25 : `Esc` ferme, comme le veut la convention des plugins herdr, et
+  la correction datée du §4 dit pourquoi le grief d'origine (fermer par erreur)
+  ne tient pas ici — le texte est persisté, donc rouvrir le rend intact ;
 - confirmation à l'envoi — la cible affichée en permanence *est* le garde-fou ;
 - message de retour au cyclage — il masquerait la zone cible pendant 3 s, donc
   le clic suivant ; la zone est son propre retour ;

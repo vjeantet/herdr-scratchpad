@@ -84,11 +84,12 @@ terminal n'en fasse des signaux : ils arrivent au pane comme des touches.
 | `Ctrl+L` | vider |
 | `Ctrl+S` | exporter dans un fichier |
 | `Ctrl+Z` | rattraper le dernier vidage |
+| `Esc` | fermer le pane |
 
-Les quatre dernières sont les combinaisons que tout le monde connaît déjà,
-chacune à sa signification habituelle : copier, effacer l'écran, sauvegarder,
-annuler. Rien à mémoriser. Seule bizarrerie assumée : `Ctrl+C` n'interrompt plus
-— mais dans un scratchpad il n'y a rien à interrompre.
+Les quatre dernières `Ctrl` sont les combinaisons que tout le monde connaît
+déjà, chacune à sa signification habituelle : copier, effacer l'écran,
+sauvegarder, annuler. Rien à mémoriser. Seule bizarrerie assumée : `Ctrl+C`
+n'interrompt plus — mais dans un scratchpad il n'y a rien à interrompre.
 
 `Ctrl+E` et `Ctrl+N` sont arrivés plus tard (§14) et n'ont pas cette évidence :
 `E` pour *emit*, `N` pour *next*. L'interface étant en anglais, le libellé
@@ -99,6 +100,43 @@ précisément parce que §4 refuse le readline.
 **Aucune touche pour quitter.** `prefix+a` referme le pane, geste symétrique de
 celui qui l'a ouvert. Un `Ctrl+Q` sur un panneau qu'on veut permanent ne sert
 qu'à le fermer par erreur.
+
+> **Correction du 2026-08-25.** `Esc` ferme le pane. Le raisonnement ci-dessus
+> visait juste sur `Ctrl+Q`, et manquait deux choses.
+>
+> La première est une **convention d'écosystème**. Chez les plugins herdr,
+> `Esc` recule d'un cran, et fermer est le dernier cran — celui qu'on atteint
+> quand il n'y a plus rien à annuler. `herdr-file-viewer` en fait une règle non
+> contournable (« Esc floor », `src/input.rs`, AC-18 : la touche ferme même si
+> l'action a été remappée), au bout d'une pile qui annule d'abord la sélection,
+> puis la recherche, puis le zoom. `herdr-reviewr`, qui a une boîte de saisie
+> comme nous, s'arrête au cran d'avant : `Esc` y annule et ne quitte jamais.
+> herdr lui-même ne s'en mêle pas — sa doc ne mentionne Escape que pour le
+> placement `popup`, et c'est pour dire que la touche est *livrée au
+> programme*, à lui d'en décider.
+>
+> Le scratchpad n'a aucun cran intermédiaire : ni mode, ni sélection, ni
+> recherche. Sa pile est vide à tous les étages, donc `Esc` tombe droit sur le
+> dernier. C'est ce qui la rend implémentable en une ligne — et ce qui aurait
+> pu la rendre dangereuse.
+>
+> La seconde chose manquée est que **fermer ne perd rien ici**. Le grief contre
+> `Ctrl+Q` n'était pas la fermeture, c'était la perte. Or le texte est persisté
+> par tab (§9) et la sortie passe par la sauvegarde finale : `prefix+a` rouvre
+> sur le même texte, au caractère près. Un `Esc` malheureux coûte un geste, pas
+> une ligne. C'est le raisonnement du §7 : ce qui autorise à se passer de
+> confirmation, c'est qu'il existe un chemin de retour — et c'est pourquoi la
+> confirmation du file-viewer (qui, lui, perdrait ses annotations) n'a pas été
+> reprise.
+>
+> Détail qui va dans le même sens : `Esc` sauvegarde **avant** de rendre la
+> main, là où `prefix+a` compte sur l'événement de perte de focus. Pour un
+> scratchpad seul dans sa tab — le cas où ce focus n'a nulle part où aller,
+> et où subsiste la fenêtre de 500 ms — `Esc` est donc le plus sûr des deux
+> chemins de fermeture.
+>
+> `Ctrl+Q` reste écarté, pour sa raison d'origine : `Esc` ne dépense aucune
+> lettre.
 
 ### Édition : minimale
 

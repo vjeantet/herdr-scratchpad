@@ -87,8 +87,9 @@ tells you if the file is malformed, and `prefix+?` lists what's already bound.
 the running server, session and all.
 
 Then `prefix+a` opens the pane docked at the bottom, focuses it if it's already
-open, and closes it if it's focused — one key for all three. A pane left dead
-by a server restart gets replaced rather than duplicated.
+open, and closes it if it's focused — one key for all three. From inside the
+pane, `Esc` closes it outright. A pane left dead by a server restart gets
+replaced rather than duplicated.
 
 ## The first minute
 
@@ -117,21 +118,30 @@ Nothing to save, nothing to name, nothing to clean up afterwards.
 | `Ctrl`+arrows | — | jump a word |
 | `Ctrl+Backspace` | — | delete the word to the left |
 | `Ctrl+Home` / `Ctrl+End` | — | start / end of the text |
+| `Esc` | — | closes the pane |
 
 These are the combinations your fingers already know, each with its usual
 meaning. The buttons in the bottom bar do the same thing on click or touch —
-except `Ctrl+S`, which has no button: it drops a file you'll go read somewhere
-else, that's not a finger gesture.
+except `Ctrl+S` and `Esc`, which have none: one drops a file you'll go read
+somewhere else, the other closes the pane. Neither is a finger gesture. The
+hint on an empty scratchpad is where both are taught.
 
 `Ctrl+C` **copies here, it doesn't interrupt** — the pane runs in raw mode, and
 there's no job in it to kill anyway. Same for `Ctrl+S`, which writes a file
 rather than freezing the terminal, and `Ctrl+Z`, which undoes rather than
 suspending.
 
-There is **no quit key**: `prefix+a` closes the pane, mirroring the gesture
-that opened it — and it's also what reopens it from the agent `Ctrl+E` just
-dropped you on. A `Ctrl+Q` on a pane you want permanent only ever closes it by
-accident.
+**`Esc` closes the pane**, following the convention of herdr's TUI plugins:
+Esc backs out one step, and closing is the last step. Here there is no mode, no
+selection and no search to back out of first, so it goes straight to it.
+Nothing is lost — the text is saved on the way out and kept per tab, so
+`prefix+a` brings it back exactly as you left it. That's also why it asks for
+no confirmation.
+
+`prefix+a` closes it too, mirroring the gesture that opened it — and it's what
+reopens the pane from the agent `Ctrl+E` just dropped you on. There is still no
+`Ctrl+Q`: on a pane you want permanent, a letter spent on quitting only ever
+closes it by accident.
 
 ## Emit to an agent
 
