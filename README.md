@@ -224,18 +224,16 @@ clobbers another one's snapshot.
 It isn't "getting the text out" (the state file already does that): it's
 **freezing a snapshot**. The state file moves on its own; this one doesn't.
 
-## Not [`herdr-notes`](https://github.com/alexarthurs/herdr-notes)
+## What it deliberately isn't
 
-Notes is a **notebook**: rendered markdown, preview/edit modes, one note per
-workspace. The two live together happily.
+A notebook. There's **no rendered markdown and no preview mode** — no modes at
+all, in fact: the text area is always editable, and there's no key to enter
+before you can type. Nothing here is meant to be kept and reread; you use it
+and you wipe it.
 
-This is a **clipboard**:
-
-- **one text per tab** — scoped to what you're looking at, and it's what makes
-  emitting to an agent unambiguous;
-- **always editable** — no mode, no key to switch to writing;
-- **plain text** — the state is a `.txt`, not JSON;
-- **it talks to agents** — the buffer is one key away from an agent's input box.
+That's also why the state is a plain `.txt` rather than a structured file, and
+why the buffer is scoped to a tab rather than filed away somewhere: it exists
+to move text, mostly the few inches between your head and an agent's input box.
 
 ## Hacking on it
 

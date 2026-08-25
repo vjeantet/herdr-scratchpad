@@ -315,7 +315,7 @@ dans une `String` sont en **octets** : d'où `byte_offset` dans `buffer.rs`.
 ### Plusieurs écrivains sur le fichier d'état
 
 Le fichier temporaire de l'écriture atomique porte le **pid** — un nom fixe
-(comme celui de `herdr-notes`) ferait se piétiner deux écrivains. Depuis le
+ferait se piétiner deux écrivains. Depuis le
 cloisonnement par tab, c'est devenu une ceinture sans bretelles : un seul
 scratchpad par tab, donc un seul écrivain par fichier. Elle couvre encore le
 repli sans clé, hors herdr, où plusieurs binaires lancés à la main partagent
@@ -344,7 +344,7 @@ Ne pas ajouter sans rouvrir `DESIGN.md` :
   *taper* sa lettre ;
 - undo de frappe — `Ctrl+Z` appartient au rattrapage du vidage ;
 - confirmation au vidage — la case de secours est la réponse ;
-- markdown rendu, mode preview — c'est `herdr-notes` ;
+- markdown rendu, mode preview — un scratchpad n'est pas un carnet ;
 - **buffer global** — renversé le 2026-08-25 : un buffer par tab, c'est le
   point (§9). Le transit entre tabs passe par `Ctrl+C` ou `Ctrl+S` ;
 - cloisonnement par *agent* — cycler la cible remplacerait le texte à l'écran ;

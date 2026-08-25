@@ -4,10 +4,9 @@
 //! logique vit ici, en modes stdin→stdout (`--launch-decision`,
 //! `--focused-pane`, `--open-plan`), ce qui la rend testable sans terminal.
 //!
-//! Différence notable avec `herdr-notes` : le buffer étant global (§2 du
-//! DESIGN), il n'y a pas de clé de workspace. Le toggle est scopé à la
-//! **tab** — un scratchpad par tab, plusieurs tabs peuvent en avoir un, et
-//! tous partagent le même texte.
+//! Le toggle est scopé à la **tab**, comme le reste du plugin : un scratchpad
+//! par tab, plusieurs tabs peuvent en avoir un, et chacun a son propre texte
+//! (§9 du DESIGN). Il n'y a nulle part de clé de workspace.
 
 use serde_json::Value;
 

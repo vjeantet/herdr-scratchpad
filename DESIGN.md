@@ -18,10 +18,10 @@ Un **presse-papier éditable persistant**, dans un pane herdr.
 Un outil de **transit** : on y colle, on y récupère, on vide. Ce n'est pas un
 carnet — on ne relit pas un scratchpad, on s'en sert et on le jette.
 
-Cette distinction est la racine de tout le reste. Elle justifie l'existence du
-plugin à côté de [`herdr-notes`](https://github.com/alexarthurs/herdr-notes),
-qui couvre déjà le panneau, la saisie, l'autosave et le clear — mais en tant que
-**carnet** : markdown rendu, mode preview/édition, une note par workspace.
+Cette distinction est la racine de tout le reste. Un plugin de **carnet**
+couvrirait déjà le panneau, la saisie, l'autosave et le clear — mais en carnet :
+markdown rendu, mode preview/édition, une note qu'on garde. Ce n'est pas le même
+outil, et c'est ce qui justifie celui-ci.
 
 Conséquences directes, non négociables sans rouvrir la racine :
 
@@ -58,13 +58,13 @@ portée du projet (§11).
   Le texte d'un scratchpad est *large* — chemins, commandes, URLs, blocs collés.
   La largeur est la ressource utile, pas la hauteur. C'est aussi le seul
   placement où la barre de boutons est confortable au doigt sur petit écran.
-  (`herdr-notes` est à droite parce qu'une note se lit en colonne.)
+  (Un carnet se dockerait à droite : une note se lit en colonne. Pas un
+  scratchpad.)
 - **Toggle scopé à la tab** : ouvre docké en bas / focalise si ouvert / ferme si
-  focalisé. Mécanique de *heartbeat* reprise telle quelle de `herdr-notes` pour
-  qu'un pane mort — y compris laissé par un redémarrage du serveur herdr — soit
-  remplacé et jamais dupliqué.
+  focalisé. Mécanique de *heartbeat* : un pane mort — y compris laissé par un
+  redémarrage du serveur herdr — est remplacé et jamais dupliqué.
 - Raccourci : `prefix+a` (libre ; `prefix+f`/`prefix+shift+f` sont au
-  file-viewer, `prefix+t` à Notes).
+  file-viewer, `prefix+t` est déjà pris).
 - `prefix+shift+a` : variante tab dédiée plein écran, pour les moments où on
   veut vraiment écrire. **Non implémenté à ce jour** — le manifeste ne déclare
   qu'une action. Décider un jour entre l'écrire et retirer la promesse.
@@ -236,8 +236,8 @@ qui a fait écarter l'action de manifeste et le mode `--state-path` : deux
 commandes et un aller-retour pour publier une information constante.
 
 - Écriture **atomique** : fichier temporaire + `fsync` + `rename`.
-- Autosave **debouncée ~500 ms** après la dernière frappe — plus court que les
-  2 s de `herdr-notes`, parce qu'ici le fichier sert de canal vers les agents.
+- Autosave **debouncée ~500 ms** après la dernière frappe — volontairement
+  court, parce qu'ici le fichier sert de canal vers les agents.
 - Sauvegarde aussi au vidage et à la fermeture.
 - Fichier absent ou illisible → buffer vide. Ça ne doit jamais bloquer le pane.
 - Hors herdr (`HERDR_PLUGIN_STATE_DIR` absent) : repli sur le répertoire de
@@ -336,19 +336,20 @@ veut (`Ctrl+End` puis coller).
 
 **Outil personnel maintenant, structuré pour être publiable plus tard.**
 
-- Rust + ratatui. Non discuté : les deux implémentations de référence dont on va
-  reprendre des morceaux entiers (heartbeat du toggle de `herdr-notes`,
-  hit-testing souris de `herdr-file-viewer`) sont en Rust, et `[[build]]` du
-  manifeste attend un `cargo build --release`.
+- Rust + ratatui. Non discuté : les plugins de référence dont on va reprendre
+  des morceaux entiers (le heartbeat du toggle, le hit-testing souris de
+  `herdr-file-viewer`) sont en Rust, et `[[build]]` du manifeste attend un
+  `cargo build --release`.
 - `platforms = ["linux", "macos"]`. **Pas de Windows** : c'est la moitié du coût
-  du plugin (le `CLAUDE.md` de `herdr-notes` fait 13 Ko presque entièrement
-  consacré à ses pièges — spawn de pane en chemin relatif impossible, lanceur
-  PowerShell, ids d'action suffixés, AltGr qui arrive en `CTRL|ALT`) et il est
+  du plugin — les plugins qui le supportent consacrent l'essentiel de leurs
+  notes à ses pièges (spawn de pane en chemin relatif impossible, lanceur
+  PowerShell, ids d'action suffixés, AltGr qui arrive en `CTRL|ALT`) — et il est
   intestable depuis un Pi headless. Écrire du code non vérifiable pour un
   utilisateur hypothétique est le mauvais échange.
 - Pas de CI, pas de LICENSE, README court, `herdr plugin link .`.
-- Manifeste et arborescence calqués sur `herdr-notes` dès le départ, pour que
-  la publication reste une soirée de travail et pas une réécriture.
+- Manifeste et arborescence calqués dès le départ sur ceux d'un plugin déjà
+  publié, pour que la publication reste une soirée de travail et pas une
+  réécriture.
 
 ## 13. Détails tranchés par défaut
 
@@ -547,5 +548,4 @@ seuil ici serait du code qui ne s'exécute jamais.
 | Chemin | Ce qu'on y prend |
 | --- | --- |
 | `~/workspace/github.com/herdrdev/herdr` | sources herdr : OSC 52, bracketed paste, plafonds |
-| `~/workspace/github.com/alexarthurs/herdr-notes` | heartbeat du toggle, manifeste, écriture atomique |
 | `~/.config/herdr/plugins/github/herdr-file-viewer-*` | hit-testing souris (`src/presenter.rs`, `src/preview.rs`) |

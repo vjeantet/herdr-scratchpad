@@ -23,9 +23,9 @@ const TEST_TAB: &str = "w1:t1";
 
 /// Sauvegarde ~500 ms après la dernière frappe.
 ///
-/// Plus court que les 2 s de `herdr-notes` : ici le fichier d'état sert de
-/// canal vers les agents, donc la fraîcheur compte. Une sauvegarde est une
-/// écriture atomique de quelques kilo-octets, on peut se le permettre.
+/// Volontairement court : ici le fichier d'état sert de canal vers les agents,
+/// donc la fraîcheur compte. Une sauvegarde est une écriture atomique de
+/// quelques kilo-octets, on peut se le permettre.
 const AUTOSAVE_AFTER: Duration = Duration::from_millis(500);
 /// Ré-estampillage de vivacité. Le lanceur déclare mort au-delà de 20 s.
 const HEARTBEAT_EVERY: Duration = Duration::from_secs(5);
