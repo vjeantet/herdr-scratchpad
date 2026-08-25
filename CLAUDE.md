@@ -5,8 +5,14 @@ décisions sont dans [`DESIGN.md`](DESIGN.md) ; ici, le *comment* et les pièges
 
 ## Langue
 
-Le dépôt est rédigé **en français**, code compris (commentaires, messages
-d'interface, noms de tests). Répondre et rédiger en français.
+Le dépôt est rédigé **en français** : documentation et commentaires. Répondre
+et rédiger en français.
+
+Deux exceptions, l'une et l'autre tournées vers l'extérieur : les **messages
+d'interface** sont en anglais (commit `d9e75b8`), et les **noms de tests**
+aussi (2026-08-25) — c'est `cargo test` qui les affiche, et ils se lisent comme
+des phrases anglaises. Les *messages d'assertion*, eux, restent en français :
+ils s'adressent à qui répare, pas à qui utilise.
 
 ## Où en est le projet
 
@@ -16,6 +22,9 @@ Tout ce que `DESIGN.md` décrit est implémenté et vérifié sur des panes viva
 | Fonction | Touche | Design |
 | --- | --- | --- |
 | coller / éditer / recharger depuis le fichier | — | §1, §8, §9, §11 |
+| poser le curseur au clic | clic | §Souris |
+| sauter / effacer un mot | `Ctrl`+flèches, `Ctrl+Backspace` | §4 |
+| aller au début / à la fin du texte | `Ctrl+Home`, `Ctrl+End` | §4 |
 | un buffer par tab, ménage des orphelins | — | §8, §9 |
 | copier vers le terminal hôte (OSC 52) | `Ctrl+C` | §5 |
 | vider, avec case de secours à une place | `Ctrl+L` | §7 |
@@ -117,7 +126,9 @@ en réouvrant des panes à la main.
 Tous unitaires, tous dans le fichier qu'ils testent (`cargo test` en donne le
 compte). Conventions :
 
-- **noms en français**, une phrase qui dit le comportement attendu ;
+- **noms en anglais**, une phrase qui dit le comportement attendu
+  (`a_click_below_the_last_line_falls_back_to_it`) ; les messages d'assertion
+  restent en français et disent *pourquoi* ;
 - **aucun socket, nulle part** ; et pas de disque non plus, sauf dans
   `state.rs` où c'est précisément l'objet du test — il travaille alors dans un
   répertoire jetable nommé d'après le pid, jamais dans l'état réel ;
@@ -326,7 +337,11 @@ n'honorent que celui-là, et c'est la forme que herdr émet lui-même
 Ne pas ajouter sans rouvrir `DESIGN.md` :
 
 - readline (`Ctrl+A/E/K/W/U`) — ces lettres sont réservées aux commandes,
-  `Ctrl+E` est devenue « envoyer » ;
+  `Ctrl+E` est devenue « envoyer ». Les sauts de mot (`Ctrl`+flèches,
+  `Ctrl+Backspace`, `Ctrl+Home`/`Ctrl+End`, ajoutés le 2026-08-25) ne sont pas
+  une entorse : ils ne portent aucune lettre. Toute autre combinaison `Ctrl` est **avalée** dans
+  `on_key`, jamais laissée retomber dans le `match` ordinaire — elle y ferait
+  *taper* sa lettre ;
 - undo de frappe — `Ctrl+Z` appartient au rattrapage du vidage ;
 - confirmation au vidage — la case de secours est la réponse ;
 - markdown rendu, mode preview — c'est `herdr-notes` ;

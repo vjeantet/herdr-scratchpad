@@ -1,9 +1,11 @@
 //! Le texte et le curseur.
 //!
 //! Édition **minimale** et assumée comme telle : flèches, `Backspace`,
-//! `Suppr`, `Home`/`End`, `PgUp`/`PgDn`, `Entrée`. Pas de readline
-//! (`Ctrl+A/E/K/W/U`) — ces combinaisons servent aux commandes, qui sont
-//! utilisées tous les jours là où l'édition fine l'est une fois par mois.
+//! `Suppr`, `Home`/`End`, `PgUp`/`PgDn`, `Entrée`, plus les sauts de mot
+//! (`Ctrl`+flèches, `Ctrl+Backspace`). Pas de readline (`Ctrl+A/E/K/W/U`) —
+//! ces combinaisons servent aux commandes, qui sont utilisées tous les jours
+//! là où l'édition fine l'est une fois par mois ; les sauts de mot, eux, sont
+//! portés par des touches qui ne se disputent aucune lettre.
 //!
 //! Corollaire : pas d'undo de frappe. `Ctrl+Z` appartient entièrement au
 //! rattrapage du vidage, géré plus haut.
@@ -76,6 +78,18 @@ impl Buffer {
     /// Position du curseur, en (ligne, colonne-caractère).
     pub fn cursor(&self) -> (usize, usize) {
         (self.row, self.col)
+    }
+
+    /// Pose le curseur, en écrêtant sur le texte réel.
+    ///
+    /// L'appelant est le clic souris, dont la position vient de la géométrie
+    /// du rendu : elle peut désigner une ligne ou une colonne qui n'existent
+    /// plus si le texte a changé entre le dessin et le clic. L'écrêtage est
+    /// donc ici, pas chez l'appelant.
+    pub fn set_cursor(&mut self, row: usize, col: usize) {
+        self.row = row;
+        self.col = col;
+        self.clamp_cursor();
     }
 
     // -- édition ----------------------------------------------------------
@@ -156,6 +170,32 @@ impl Buffer {
         }
     }
 
+    /// Efface le mot à gauche du curseur (`Ctrl+Backspace`).
+    ///
+    /// La cible est exactement celle de `word_left` : ce qu'on efface est ce
+    /// que le curseur aurait sauté, sans quoi les deux touches ne
+    /// raconteraient pas la même histoire.
+    pub fn delete_word_left(&mut self) {
+        let (row, col) = (self.row, self.col);
+        self.word_left();
+
+        if (self.row, self.col) == (row, col) {
+            return;
+        }
+        if self.row != row {
+            // Le saut de mot a franchi un saut de ligne : il n'y avait rien à
+            // effacer sur cette ligne, donc on recolle les deux lignes comme
+            // un `Backspace` ordinaire.
+            self.set_cursor(row, col);
+            self.backspace();
+            return;
+        }
+
+        let start = self.byte_offset(row, self.col);
+        let end = self.byte_offset(row, col);
+        self.lines[row].replace_range(start..end, "");
+    }
+
     // -- déplacements -----------------------------------------------------
 
     pub fn left(&mut self) {
@@ -194,9 +234,55 @@ impl Buffer {
         self.col = self.lines[self.row].chars().count();
     }
 
+    /// Recule d'un mot : les séparateurs, puis le mot lui-même.
+    ///
+    /// En début de ligne, on se contente de franchir le saut de ligne, comme
+    /// `left` : le mot suivant se prend au coup d'après. Un saut qui
+    /// traverserait la ligne *et* un mot ferait disparaître le curseur de
+    /// l'écran d'un seul geste.
+    pub fn word_left(&mut self) {
+        if self.col == 0 {
+            self.left();
+            return;
+        }
+        let chars: Vec<char> = self.lines[self.row].chars().collect();
+        let mut i = self.col;
+        while i > 0 && !is_word(chars[i - 1]) {
+            i -= 1;
+        }
+        while i > 0 && is_word(chars[i - 1]) {
+            i -= 1;
+        }
+        self.col = i;
+    }
+
+    /// Avance d'un mot, jusqu'à la **fin** du mot suivant.
+    ///
+    /// Symétrique de `word_left`, y compris pour le saut de ligne.
+    pub fn word_right(&mut self) {
+        let chars: Vec<char> = self.lines[self.row].chars().collect();
+        if self.col >= chars.len() {
+            self.right();
+            return;
+        }
+        let mut i = self.col;
+        while i < chars.len() && !is_word(chars[i]) {
+            i += 1;
+        }
+        while i < chars.len() && is_word(chars[i]) {
+            i += 1;
+        }
+        self.col = i;
+    }
+
     pub fn cursor_to_end(&mut self) {
         self.row = self.lines.len().saturating_sub(1);
         self.end();
+    }
+
+    pub fn cursor_to_start(&mut self) {
+        self.row = 0;
+        self.col = 0;
     }
 
     // -- interne ----------------------------------------------------------
@@ -224,6 +310,14 @@ impl Buffer {
             .map(|(i, _)| i)
             .unwrap_or(self.lines[row].len())
     }
+}
+
+/// Ce qui compte comme faisant partie d'un mot pour les sauts de mot.
+///
+/// `_` est dedans : un scratchpad charrie des noms de variables et des
+/// chemins, où `nom_de_fichier` est un mot et non trois.
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
 }
 
 /// Découpe en lignes, en garantissant au moins une ligne.
@@ -389,6 +483,153 @@ mod tests {
         buf.end();
         buf.right();
         assert_eq!(buf.cursor(), (1, 0));
+    }
+
+    #[test]
+    fn set_cursor_clamps_to_the_real_text() {
+        let mut buf = Buffer::from_text("un\ndeux");
+        buf.set_cursor(99, 99);
+        assert_eq!(
+            buf.cursor(),
+            (1, 4),
+            "un clic hors du texte se rabat sur sa fin, il ne panique pas"
+        );
+    }
+
+    #[test]
+    fn set_cursor_clamps_the_column_to_the_targeted_line() {
+        let mut buf = Buffer::from_text("long\nx");
+        buf.set_cursor(1, 4);
+        assert_eq!(buf.cursor(), (1, 1));
+    }
+
+    #[test]
+    fn cursor_to_start_goes_to_the_very_beginning() {
+        let mut buf = Buffer::from_text("un\ndeux");
+        buf.cursor_to_start();
+        assert_eq!(buf.cursor(), (0, 0));
+    }
+
+    #[test]
+    fn cursor_to_end_goes_to_the_very_end() {
+        let mut buf = Buffer::from_text("un\ndeux");
+        buf.cursor_to_start();
+        buf.cursor_to_end();
+        assert_eq!(buf.cursor(), (1, 4));
+    }
+
+    #[test]
+    fn word_left_moves_to_the_start_of_the_previous_word() {
+        let mut buf = Buffer::from_text("un deux trois");
+        buf.word_left();
+        assert_eq!(buf.cursor(), (0, 8), "le curseur se pose sur le t de trois");
+    }
+
+    #[test]
+    fn word_left_skips_the_separators_before_the_word() {
+        let mut buf = Buffer::from_text("un deux   ");
+        buf.word_left();
+        assert_eq!(buf.cursor(), (0, 3), "les espaces se traversent avec le mot");
+    }
+
+    #[test]
+    fn word_left_at_line_start_crosses_the_line_break() {
+        let mut buf = Buffer::from_text("un\ndeux");
+        buf.home();
+        buf.word_left();
+        assert_eq!(
+            buf.cursor(),
+            (0, 2),
+            "un seul geste ne doit pas franchir la ligne *et* un mot"
+        );
+    }
+
+    #[test]
+    fn word_left_at_the_origin_does_not_move() {
+        let mut buf = Buffer::from_text("un");
+        buf.home();
+        buf.word_left();
+        assert_eq!(buf.cursor(), (0, 0));
+    }
+
+    #[test]
+    fn word_right_moves_to_the_end_of_the_next_word() {
+        let mut buf = Buffer::from_text("un deux trois");
+        buf.up(usize::MAX);
+        buf.home();
+        buf.word_right();
+        assert_eq!(buf.cursor(), (0, 2), "la fin de « un »");
+        buf.word_right();
+        assert_eq!(buf.cursor(), (0, 7), "puis la fin de « deux »");
+    }
+
+    #[test]
+    fn word_right_at_line_end_crosses_the_line_break() {
+        let mut buf = Buffer::from_text("un\ndeux");
+        buf.up(usize::MAX);
+        buf.end();
+        buf.word_right();
+        assert_eq!(buf.cursor(), (1, 0));
+    }
+
+    #[test]
+    fn underscore_is_part_of_a_word() {
+        let mut buf = Buffer::from_text("nom_de_fichier");
+        buf.word_left();
+        assert_eq!(
+            buf.cursor(),
+            (0, 0),
+            "`nom_de_fichier` est un mot, pas trois"
+        );
+    }
+
+    #[test]
+    fn word_left_counts_chars_not_bytes() {
+        let mut buf = Buffer::from_text("été café");
+        buf.word_left();
+        assert_eq!(buf.cursor(), (0, 4), "les accents ne décalent pas le saut");
+    }
+
+    #[test]
+    fn delete_word_left_removes_the_word_on_the_left() {
+        let mut buf = Buffer::from_text("un deux");
+        buf.delete_word_left();
+        assert_eq!(buf.text(), "un ");
+        assert_eq!(buf.cursor(), (0, 3));
+    }
+
+    #[test]
+    fn delete_word_left_removes_what_word_left_would_have_skipped() {
+        let mut buf = Buffer::from_text("un deux   ");
+        let mut temoin = buf.clone();
+        temoin.word_left();
+        buf.delete_word_left();
+        assert_eq!(buf.cursor(), temoin.cursor(), "même cible pour les deux touches");
+        assert_eq!(buf.text(), "un ");
+    }
+
+    #[test]
+    fn delete_word_left_removes_whole_accented_chars() {
+        let mut buf = Buffer::from_text("le café");
+        buf.delete_word_left();
+        assert_eq!(buf.text(), "le ", "on efface des caractères, pas des octets");
+    }
+
+    #[test]
+    fn delete_word_left_at_line_start_joins_the_lines() {
+        let mut buf = Buffer::from_text("un\ndeux");
+        buf.home();
+        buf.delete_word_left();
+        assert_eq!(buf.text(), "undeux");
+        assert_eq!(buf.cursor(), (0, 2));
+    }
+
+    #[test]
+    fn delete_word_left_at_the_origin_touches_nothing() {
+        let mut buf = Buffer::from_text("un");
+        buf.home();
+        buf.delete_word_left();
+        assert_eq!(buf.text(), "un");
     }
 
     #[test]

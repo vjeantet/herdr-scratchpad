@@ -232,6 +232,23 @@ impl App {
                 KeyCode::Char('l') | KeyCode::Char('L') => self.run(Command::Clear),
                 KeyCode::Char('s') | KeyCode::Char('S') => self.run(Command::Export),
                 KeyCode::Char('z') | KeyCode::Char('Z') => self.run(Command::Undo),
+                // Les sauts de mot ne portent pas de lettre : ils ne disputent
+                // rien aux commandes, contrairement au readline écarté par le
+                // design (`Ctrl+A/E/K/W/U`).
+                KeyCode::Left => self.buf.word_left(),
+                KeyCode::Right => self.buf.word_right(),
+                KeyCode::Home => self.buf.cursor_to_start(),
+                KeyCode::End => self.buf.cursor_to_end(),
+                // `Ctrl+Backspace` arrive selon le terminal soit tel quel,
+                // soit en `^H` — c'est-à-dire `Ctrl+H` (crossterm
+                // `event/sys/unix/parse.rs:106`). Les deux formes valent la
+                // même chose, et `h` n'est pris par aucune commande.
+                KeyCode::Backspace | KeyCode::Char('h') | KeyCode::Char('H') => {
+                    self.buf.delete_word_left();
+                    self.touch();
+                }
+                // Toute autre combinaison `Ctrl` est avalée : la laisser
+                // tomber dans le `match` ordinaire ferait *taper* sa lettre.
                 _ => {}
             }
             return;
@@ -290,10 +307,26 @@ impl App {
             // Les boutons agissent à la pression : ils ne peuvent pas démarrer
             // de glisser, donc rien ne justifie d'attendre le relâchement.
             MouseEventKind::Down(MouseButton::Left) => {
-                if let Some((action, _)) = self.buttons.iter().find(|(_, r)| r.contains(pos)) {
-                    match *action {
-                        Action::Command(command) => self.run(command),
-                        Action::CycleTarget => self.cycle_target(),
+                let hit = self
+                    .buttons
+                    .iter()
+                    .find(|(_, r)| r.contains(pos))
+                    .map(|(action, _)| *action);
+                match hit {
+                    Some(Action::Command(command)) => self.run(command),
+                    Some(Action::CycleTarget) => self.cycle_target(),
+                    // Hors de la barre : le clic pose le curseur. La position
+                    // est calculée avant d'emprunter le buffer en écriture.
+                    None => {
+                        let at = ui::position_to_cursor(
+                            self.buf.lines(),
+                            self.body,
+                            self.scroll,
+                            pos,
+                        );
+                        if let Some((row, col)) = at {
+                            self.buf.set_cursor(row, col);
+                        }
                     }
                 }
             }
@@ -631,6 +664,11 @@ mod tests {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
     }
 
+    /// `Ctrl` sur une touche qui n'est pas une lettre — flèches, `Backspace`.
+    fn ctrl_code(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::CONTROL)
+    }
+
     fn text_of(app: &App) -> String {
         app.buf.text()
     }
@@ -906,6 +944,82 @@ mod tests {
     }
 
     #[test]
+    fn clicking_in_the_text_places_the_cursor() {
+        let mut app = App::headless("un deux");
+        app.body = Rect { x: 0, y: 0, width: 10, height: 3 };
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 3,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.on_key(key(KeyCode::Char('X')));
+        assert_eq!(text_of(&app), "un Xdeux", "la frappe suit le clic");
+    }
+
+    #[test]
+    fn clicking_a_button_does_not_move_the_cursor() {
+        let mut app = App::headless("texte");
+        app.body = Rect { x: 0, y: 0, width: 20, height: 3 };
+        app.buttons = vec![(Action::CycleTarget, Rect { x: 0, y: 0, width: 8, height: 1 })];
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 1,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.on_key(key(KeyCode::Char('X')));
+        assert_eq!(
+            text_of(&app),
+            "texteX",
+            "la barre prime sur le texte qu'elle recouvre"
+        );
+    }
+
+    #[test]
+    fn ctrl_arrow_jumps_a_word() {
+        let mut app = App::headless("un deux");
+        app.on_key(ctrl_code(KeyCode::Left));
+        app.on_key(key(KeyCode::Char('X')));
+        assert_eq!(text_of(&app), "un Xdeux");
+    }
+
+    #[test]
+    fn ctrl_home_and_end_jump_to_the_ends_of_the_buffer() {
+        let mut app = App::headless("un\ndeux\ntrois");
+        app.on_key(ctrl_code(KeyCode::Home));
+        app.on_key(key(KeyCode::Char('X')));
+        app.on_key(ctrl_code(KeyCode::End));
+        app.on_key(key(KeyCode::Char('Y')));
+        assert_eq!(text_of(&app), "Xun\ndeux\ntroisY");
+    }
+
+    #[test]
+    fn ctrl_backspace_deletes_the_word_on_the_left() {
+        let mut app = App::headless("un deux");
+        app.on_key(ctrl_code(KeyCode::Backspace));
+        assert_eq!(text_of(&app), "un ");
+    }
+
+    #[test]
+    fn ctrl_h_is_the_same_as_ctrl_backspace() {
+        let mut app = App::headless("un deux");
+        app.on_key(ctrl('h'));
+        assert_eq!(
+            text_of(&app),
+            "un ",
+            "certains terminaux encodent Ctrl+Backspace en ^H"
+        );
+    }
+
+    #[test]
+    fn an_unknown_ctrl_combination_does_not_type_its_letter() {
+        let mut app = App::headless("");
+        app.on_key(ctrl('d'));
+        assert_eq!(text_of(&app), "", "Ctrl+D n'écrit pas un « d »");
+    }
+
+    #[test]
     fn wheel_scrolls_without_touching_the_text() {
         let mut app = App::headless("a\nb\nc\nd\ne\nf\ng\nh");
         app.total_rows = 8;
@@ -959,7 +1073,7 @@ mod tests {
     // -- envoyer à l'agent -------------------------------------------------
 
     #[test]
-    fn ctrl_e_sur_un_buffer_vide_ne_vide_rien_et_le_dit() {
+    fn sending_an_empty_buffer_clears_nothing_and_says_so() {
         let mut app = wired("", None);
         app.on_key(ctrl('e'));
         assert!(status_of(&app).contains("nothing to emit"), "{}", status_of(&app));
@@ -967,7 +1081,7 @@ mod tests {
     }
 
     #[test]
-    fn un_envoi_reussi_depose_le_texte_chez_la_cible_affichee() {
+    fn a_successful_send_drops_the_text_on_the_displayed_target() {
         let mut app = wired("à envoyer", None);
         app.on_key(ctrl('e'));
         assert_eq!(text_of(&app), "");
@@ -977,7 +1091,7 @@ mod tests {
     /// Le dépôt est un **déplacement** : `Ctrl+Z` doit le rattraper, comme un
     /// vidage.
     #[test]
-    fn un_envoi_reussi_vide_et_ctrl_z_restaure() {
+    fn a_successful_send_clears_and_undo_restores() {
         let mut app = wired("à envoyer", None);
         app.on_key(ctrl('e'));
         app.on_key(ctrl('z'));
@@ -987,7 +1101,7 @@ mod tests {
     /// C'est ce qui rend l'erreur sans conséquence, et ce qui remplace la
     /// confirmation.
     #[test]
-    fn un_envoi_qui_echoue_ne_vide_pas() {
+    fn a_failed_send_does_not_clear() {
         let mut app = wired("précieux", Some("pane_not_found"));
         app.on_key(ctrl('e'));
         assert_eq!(text_of(&app), "précieux");
@@ -996,7 +1110,7 @@ mod tests {
     }
 
     #[test]
-    fn sans_agent_l_envoi_refuse_et_ne_vide_pas() {
+    fn without_an_agent_the_send_refuses_and_does_not_clear() {
         let mut app = wired_empty("précieux");
         app.on_key(ctrl('e'));
         assert_eq!(text_of(&app), "précieux");
@@ -1006,7 +1120,7 @@ mod tests {
     /// La cible affichée a disparu entre l'affichage et l'appui : on ne se
     /// rabat **pas** sur une autre, on refuse.
     #[test]
-    fn une_cible_disparue_annule_l_envoi_au_lieu_d_en_choisir_une_autre() {
+    fn a_vanished_target_cancels_the_send_instead_of_picking_another() {
         let mut app = wired("précieux", None);
         assert_eq!(app.current_target().unwrap().pane_id, "w1:p1");
 
@@ -1025,7 +1139,7 @@ mod tests {
     /// Le focus va au pane qui a **effectivement** reçu le texte — le même que
     /// celui du dépôt, pas la cible d'avant le cyclage.
     #[test]
-    fn un_envoi_reussi_focalise_l_agent_qui_a_recu_le_texte() {
+    fn a_successful_send_focuses_the_agent_that_got_the_text() {
         let herdr = std::rc::Rc::new(two_agents(None));
         let mut app = wired_on("à envoyer", herdr.clone());
         app.on_key(ctrl('n'));
@@ -1041,7 +1155,7 @@ mod tests {
 
     /// Rien n'est parti : on ne bascule pas, et le texte reste sous les yeux.
     #[test]
-    fn un_envoi_qui_echoue_ne_focalise_rien() {
+    fn a_failed_send_focuses_nothing() {
         let herdr = std::rc::Rc::new(two_agents(Some("pane_not_found")));
         let mut app = wired_on("précieux", herdr.clone());
         app.on_key(ctrl('e'));
@@ -1050,7 +1164,7 @@ mod tests {
     }
 
     #[test]
-    fn un_buffer_vide_ne_focalise_rien() {
+    fn an_empty_buffer_focuses_nothing() {
         let herdr = std::rc::Rc::new(two_agents(None));
         let mut app = wired_on("", herdr.clone());
         app.on_key(ctrl('e'));
@@ -1058,7 +1172,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_n_fait_tourner_la_cible_sans_toucher_au_texte() {
+    fn cycling_changes_the_target_without_touching_the_text() {
         let mut app = wired("intact", None);
         assert_eq!(app.current_target().unwrap().agent, "claude");
         app.on_key(ctrl('n'));
@@ -1072,7 +1186,7 @@ mod tests {
     /// au cyclage masquerait la zone cible, et il faudrait attendre pour
     /// recliquer dessus.
     #[test]
-    fn cycler_ne_masque_pas_la_barre() {
+    fn cycling_does_not_hide_the_bar() {
         let mut app = wired("x", None);
         app.on_key(ctrl('n'));
         assert!(app.status.is_none(), "le cyclage ne doit rien afficher");
@@ -1081,7 +1195,7 @@ mod tests {
     /// Même sans cible, le cyclage reste muet : la zone dit déjà « aucun
     /// agent », et elle doit rester cliquable.
     #[test]
-    fn cycler_sans_agent_reste_muet() {
+    fn cycling_without_an_agent_stays_silent() {
         let mut app = wired_empty("x");
         app.on_key(ctrl('n'));
         assert!(app.status.is_none());
@@ -1090,7 +1204,7 @@ mod tests {
 
     /// Deux clics de suite sur la zone cible doivent avancer de deux crans.
     #[test]
-    fn deux_clics_de_suite_sur_la_zone_cible_avancent_deux_fois() {
+    fn two_clicks_on_the_target_area_advance_twice() {
         let mut app = wired("x", None);
         app.buttons = vec![(Action::CycleTarget, Rect { x: 0, y: 0, width: 12, height: 1 })];
         let depart = app.current_target().unwrap().pane_id.clone();
@@ -1109,7 +1223,7 @@ mod tests {
     }
 
     #[test]
-    fn le_cyclage_survit_a_un_rafraichissement() {
+    fn the_cycled_target_survives_a_refresh() {
         let mut app = wired("x", None);
         app.on_key(ctrl('n'));
         app.refresh_targets();
@@ -1119,7 +1233,7 @@ mod tests {
     /// Un `agent.list` muet ne doit pas faire disparaître le bouton d'envoi :
     /// mieux vaut une liste un peu vieille qu'une barre clignotante.
     #[test]
-    fn un_serveur_muet_laisse_la_liste_precedente_en_place() {
+    fn a_silent_server_leaves_the_previous_list_in_place() {
         struct Muet;
         impl Herdr for Muet {
             fn agent_list(&self) -> Option<String> {
@@ -1140,7 +1254,7 @@ mod tests {
     }
 
     #[test]
-    fn un_clic_sur_la_zone_cible_cycle_et_un_clic_sur_envoyer_envoie() {
+    fn clicking_the_target_area_cycles_and_clicking_send_sends() {
         let mut app = wired("à envoyer", None);
         app.buttons = vec![
             (Action::Command(Command::Send), Rect { x: 0, y: 0, width: 10, height: 1 }),
@@ -1167,7 +1281,7 @@ mod tests {
     }
 
     #[test]
-    fn shift_clic_sur_la_barre_d_envoi_reste_inerte() {
+    fn shift_click_on_the_send_bar_stays_inert() {
         let mut app = wired("intact", None);
         app.buttons = vec![
             (Action::Command(Command::Send), Rect { x: 0, y: 0, width: 10, height: 1 }),
@@ -1182,7 +1296,7 @@ mod tests {
     }
 
     #[test]
-    fn le_pane_courant_ne_se_propose_jamais_comme_cible() {
+    fn the_current_pane_never_offers_itself_as_a_target() {
         let mut app = App::with_herdr(
             "x",
             boxed(FakeHerdr {
@@ -1199,7 +1313,7 @@ mod tests {
     /// La cible par défaut est la première de ma tab, par `pane_id`. L'ordre
     /// étant stable, « la première » désigne toujours le même agent.
     #[test]
-    fn la_cible_par_defaut_est_le_premier_agent_de_ma_tab() {
+    fn the_default_target_is_the_first_agent_in_my_tab() {
         let app = wired("x", None);
         assert_eq!(app.current_target().unwrap().pane_id, "w1:p1");
     }
@@ -1207,7 +1321,7 @@ mod tests {
     /// Le cloisonnement, vu de l'application : un agent qui vit ailleurs
     /// n'est pas joignable, et le bouton d'envoi n'existe donc pas.
     #[test]
-    fn un_agent_d_une_autre_tab_n_est_jamais_une_cible() {
+    fn an_agent_from_another_tab_is_never_a_target() {
         let mut app = App::with_herdr(
             "précieux",
             boxed(FakeHerdr {
@@ -1226,7 +1340,7 @@ mod tests {
     /// Un seul agent : nulle part où aller, donc rien ne bouge et rien ne
     /// s'affiche — la zone cible n'existe même pas dans ce cas.
     #[test]
-    fn ctrl_n_ne_fait_rien_et_ne_dit_rien_avec_un_seul_agent() {
+    fn cycling_does_nothing_and_says_nothing_with_a_single_agent() {
         let mut app = App::with_herdr(
             "x",
             boxed(FakeHerdr {
@@ -1245,7 +1359,7 @@ mod tests {
     // -- ménage des buffers orphelins --------------------------------------
 
     #[test]
-    fn le_menage_retient_les_tabs_vivantes() {
+    fn the_sweep_keeps_the_live_tabs() {
         let herdr = std::rc::Rc::new(two_agents(None));
         assert_eq!(live_tabs(&herdr), Some(vec![TEST_TAB.to_owned()]));
     }
@@ -1253,7 +1367,7 @@ mod tests {
     /// Une liste vide n'est jamais une information : c'est une panne, et le
     /// ménage s'abstient plutôt que de déclarer toutes les tabs mortes.
     #[test]
-    fn le_menage_s_abstient_quand_tab_list_rend_une_liste_vide() {
+    fn the_sweep_abstains_when_tab_list_returns_an_empty_list() {
         let herdr = std::rc::Rc::new(FakeHerdr {
             tabs: tabs_json(&[]),
             ..Default::default()
@@ -1262,7 +1376,7 @@ mod tests {
     }
 
     #[test]
-    fn le_menage_s_abstient_quand_le_serveur_est_muet() {
+    fn the_sweep_abstains_when_the_server_is_silent() {
         struct Muet;
         impl Herdr for Muet {
             fn agent_list(&self) -> Option<String> {
@@ -1280,7 +1394,7 @@ mod tests {
     }
 
     #[test]
-    fn le_menage_s_abstient_sur_du_json_illisible() {
+    fn the_sweep_abstains_on_unreadable_json() {
         let herdr = std::rc::Rc::new(FakeHerdr {
             tabs: "pas du json".into(),
             ..Default::default()
@@ -1290,7 +1404,7 @@ mod tests {
 
     /// AltGr ne doit pas non plus déclencher les nouvelles commandes.
     #[test]
-    fn altgr_n_envoie_pas() {
+    fn altgr_does_not_send() {
         let mut app = wired("intact", None);
         app.on_key(KeyEvent::new(
             KeyCode::Char('e'),

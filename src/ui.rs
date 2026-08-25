@@ -6,7 +6,7 @@
 //! en page — un clic ne peut donc pas tomber sur un bouton différent de celui
 //! qui a été dessiné.
 
-use ratatui::layout::Rect;
+use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
@@ -153,6 +153,56 @@ pub fn cursor_visual_row(rows: &[VisualRow], cursor: (usize, usize)) -> usize {
         // de cette ligne logique.
         .or_else(|| rows.iter().rposition(|v| v.row == row))
         .unwrap_or(0)
+}
+
+/// Position du curseur désignée par un clic dans la zone de texte.
+///
+/// C'est l'inverse exact du placement fait par `draw` : on repasse par `wrap`
+/// avec les mêmes lignes et la même largeur, donc le clic retombe sur la
+/// ligne visuelle qui a réellement été dessinée. Recalculer plutôt que
+/// mémoriser reste sûr ici — contrairement aux boutons, dont les libellés
+/// dépendent d'un état (cible, message) que le clic ne connaît pas.
+///
+/// Rend `None` quand le clic tombe hors du texte : à l'appelant de ne rien
+/// faire, plutôt que de déplacer le curseur au hasard.
+pub fn position_to_cursor(
+    lines: &[String],
+    body: Rect,
+    scroll: usize,
+    pos: Position,
+) -> Option<(usize, usize)> {
+    if !body.contains(pos) {
+        return None;
+    }
+    let rows = wrap(lines, body.width as usize);
+
+    // Un clic sous la dernière ligne se rabat sur elle : la zone vide du bas
+    // appartient visuellement à la fin du texte.
+    let index = (scroll + (pos.y - body.y) as usize).min(rows.len().saturating_sub(1));
+    let visual = *rows.get(index)?;
+
+    // La colonne visée est une colonne d'**affichage** : un idéogramme en
+    // occupe deux, et compter en caractères décalerait le curseur d'autant.
+    let wanted = (pos.x - body.x) as usize;
+    let mut used = 0usize;
+    let mut col = visual.start;
+    for c in lines[visual.row]
+        .chars()
+        .skip(visual.start)
+        .take(visual.end - visual.start)
+    {
+        let w = UnicodeWidthChar::width(c).unwrap_or(0);
+        // Cliquer sur la seconde colonne d'un caractère large le désigne lui,
+        // pas son voisin : le curseur se pose devant.
+        if used + w > wanted {
+            break;
+        }
+        used += w;
+        col += 1;
+    }
+    // Au-delà de la fin du morceau affiché, `col == visual.end` : cliquer dans
+    // le vide à droite pose le curseur en fin de ligne, comme partout.
+    Some((visual.row, col))
 }
 
 /// Dispose la barre : les entrées qui tiennent, avec leur rectangle.
@@ -308,6 +358,91 @@ pub fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Zone de texte de test : 10 colonnes, 3 lignes, posée en (0, 0).
+    fn body() -> Rect {
+        Rect { x: 0, y: 0, width: 10, height: 3 }
+    }
+
+    fn at(x: u16, y: u16) -> Position {
+        Position { x, y }
+    }
+
+    #[test]
+    fn a_click_outside_the_text_area_designates_nothing() {
+        let l = lines("abc");
+        assert_eq!(
+            position_to_cursor(&l, body(), 0, at(0, 9)),
+            None,
+            "la barre du bas n'est pas du texte"
+        );
+    }
+
+    #[test]
+    fn a_click_designates_the_targeted_line_and_column() {
+        let l = lines("abc\ndef");
+        assert_eq!(position_to_cursor(&l, body(), 0, at(2, 1)), Some((1, 2)));
+    }
+
+    #[test]
+    fn a_click_accounts_for_the_scroll() {
+        let l = lines("a\nb\nc\nd");
+        assert_eq!(
+            position_to_cursor(&l, body(), 2, at(0, 0)),
+            Some((2, 0)),
+            "la première ligne affichée est la troisième du texte"
+        );
+    }
+
+    #[test]
+    fn a_click_right_of_the_text_lands_at_the_line_end() {
+        let l = lines("abc");
+        assert_eq!(position_to_cursor(&l, body(), 0, at(9, 0)), Some((0, 3)));
+    }
+
+    #[test]
+    fn a_click_below_the_last_line_falls_back_to_it() {
+        let l = lines("abc");
+        assert_eq!(
+            position_to_cursor(&l, body(), 0, at(1, 2)),
+            Some((0, 1)),
+            "le vide du bas appartient à la fin du texte"
+        );
+    }
+
+    #[test]
+    fn a_click_on_a_wrapped_line_targets_the_right_logical_line() {
+        let l = lines("abcdefghijklm");
+        let rows = wrap(&l, 10);
+        assert_eq!(rows.len(), 2, "prérequis : la ligne se replie en deux");
+        assert_eq!(
+            position_to_cursor(&l, body(), 0, at(1, 1)),
+            Some((0, 11)),
+            "la deuxième ligne visuelle est la suite de la même ligne logique"
+        );
+    }
+
+    #[test]
+    fn a_click_counts_display_columns() {
+        let l = lines("日本語");
+        assert_eq!(
+            position_to_cursor(&l, body(), 0, at(2, 0)),
+            Some((0, 1)),
+            "un idéogramme occupe deux colonnes, pas une"
+        );
+    }
+
+    #[test]
+    fn a_click_on_the_second_column_of_a_wide_char_designates_that_char() {
+        let l = lines("日本語");
+        assert_eq!(position_to_cursor(&l, body(), 0, at(1, 0)), Some((0, 0)));
+    }
+
+    #[test]
+    fn a_click_on_an_empty_line_stays_at_column_zero() {
+        let l = lines("\nb");
+        assert_eq!(position_to_cursor(&l, body(), 0, at(7, 0)), Some((0, 0)));
+    }
 
     fn lines(text: &str) -> Vec<String> {
         text.split('\n').map(str::to_owned).collect()
@@ -473,7 +608,7 @@ mod tests {
     /// Sans agent dans la tab, il n'y a rien à quoi parler : ni le bouton, ni
     /// la zone.
     #[test]
-    fn sans_agent_ni_envoi_ni_zone_cible_ne_sont_dans_la_barre() {
+    fn without_an_agent_neither_send_nor_target_area_are_in_the_bar() {
         assert_eq!(
             actions(0),
             vec![
@@ -486,7 +621,7 @@ mod tests {
 
     /// Avec un seul agent, la zone n'apprendrait rien — `^E` dit déjà tout.
     #[test]
-    fn avec_un_agent_l_envoi_est_la_mais_pas_la_zone_cible() {
+    fn with_one_agent_send_is_there_but_not_the_target_area() {
         assert_eq!(
             actions(1),
             vec![
@@ -499,7 +634,7 @@ mod tests {
     }
 
     #[test]
-    fn avec_deux_agents_l_envoi_et_la_zone_cible_sont_la() {
+    fn with_two_agents_send_and_the_target_area_are_both_there() {
         assert!(actions(2).contains(&Action::Command(Command::Send)));
         assert!(actions(2).contains(&Action::CycleTarget));
     }
@@ -507,7 +642,7 @@ mod tests {
     /// La raison d'être de l'inversion : un agent qui démarre ou s'arrête ne
     /// doit pas déplacer les trois commandes sous le doigt qui descend.
     #[test]
-    fn les_commandes_fixes_ne_bougent_pas_avec_le_nombre_d_agents() {
+    fn the_fixed_commands_do_not_move_with_the_agent_count() {
         assert_eq!(fixed_rects(0), fixed_rects(1), "un agent qui démarre ne décale rien");
         assert_eq!(fixed_rects(1), fixed_rects(2), "un second non plus");
     }
@@ -515,7 +650,7 @@ mod tests {
     /// Corollaire assumé de l'inversion : sur une barre étroite, ce sont la
     /// cible puis `^E` qui tombent — jamais les trois commandes fixes.
     #[test]
-    fn les_commandes_fixes_survivent_a_une_barre_etroite() {
+    fn the_fixed_commands_survive_a_narrow_bar() {
         let items = bar(30);
         let actions: Vec<_> = items.iter().map(|i| i.action).collect();
         assert!(actions.starts_with(&[
@@ -530,7 +665,7 @@ mod tests {
     /// résultat est un fichier qu'on ira lire ailleurs, jamais au milieu d'un
     /// geste au doigt.
     #[test]
-    fn l_export_n_a_de_bouton_dans_aucune_des_trois_formes() {
+    fn export_has_no_button_in_any_of_the_three_shapes() {
         for count in 0..=2 {
             assert!(
                 !actions(count).contains(&Action::Command(Command::Export)),
@@ -542,7 +677,7 @@ mod tests {
     /// Un nom d'agent interminable ne doit pas emporter le reste de la barre
     /// avec lui : la zone cible a un budget.
     #[test]
-    fn un_nom_d_agent_interminable_ne_mange_pas_la_barre() {
+    fn an_endless_agent_name_does_not_eat_the_bar() {
         let long = target(&"a".repeat(200), "w2:p1");
         let items = layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&long, 2));
         assert_eq!(items.len(), 5);
@@ -551,7 +686,7 @@ mod tests {
     /// Deux agents annoncés mais aucune cible retenue : la barre ne doit pas
     /// s'effondrer, elle affiche juste ce qu'elle sait.
     #[test]
-    fn la_barre_se_dispose_encore_sans_cible_retenue() {
+    fn the_bar_still_lays_out_without_a_selected_target() {
         let items = layout_bar(
             Rect { x: 0, y: 0, width: 120, height: 1 },
             Targets { current: None, count: 2 },

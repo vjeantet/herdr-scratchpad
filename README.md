@@ -24,6 +24,9 @@ herdr plugin link .
 | `Ctrl+L` | `^L clear` | vide, sans confirmation |
 | `Ctrl+S` | — | écrit `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` |
 | `Ctrl+Z` | `^Z undo` | ramène le dernier contenu vidé ou envoyé |
+| `Ctrl`+flèches | — | saute d'un mot |
+| `Ctrl+Backspace` | — | efface le mot à gauche |
+| `Ctrl+Home` / `Ctrl+End` | — | début / fin du texte |
 
 Ce sont les combinaisons que tes doigts connaissent déjà, chacune à sa
 signification habituelle. Les boutons de la barre du bas font la même chose au
@@ -129,6 +132,10 @@ SSH, et ça marche sur une machine sans serveur graphique.
 herdr plafonne les écritures presse-papier à **192 Ko**
 (`MAX_CLIPBOARD_BYTES`). Au-delà, `Ctrl+C` refuse explicitement et te renvoie
 vers `Ctrl+S` — plutôt que de te laisser coller du vide ailleurs.
+
+Un **clic dans le texte pose le curseur** ; la molette fait défiler. Il n'y a
+pas de sélection à la souris à l'intérieur du pane, et il n'en faut pas :
+`Ctrl+C` copie **tout**.
 
 `Shift`+glisser sélectionne normalement, comme dans n'importe quel pane :
 herdr réserve `Shift`+souris au terminal, et le plugin n'y touche pas.

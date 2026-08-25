@@ -168,19 +168,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn une_reponse_en_erreur_est_reconnue() {
+    fn an_error_response_is_recognised() {
         let line = r#"{"id":"x","error":{"code":"pane_not_found","message":"pas de pane"}}"#;
         assert_eq!(error_of(line).as_deref(), Some("pas de pane"));
     }
 
     #[test]
-    fn une_reponse_reussie_ne_porte_pas_d_erreur() {
+    fn a_successful_response_carries_no_error() {
         let line = r#"{"id":"x","result":{"type":"ok"}}"#;
         assert_eq!(error_of(line), None);
     }
 
     #[test]
-    fn une_erreur_sans_message_retombe_sur_son_code() {
+    fn an_error_without_a_message_falls_back_to_its_code() {
         let line = r#"{"id":"x","error":{"code":"invalid_request"}}"#;
         assert_eq!(error_of(line).as_deref(), Some("invalid_request"));
     }
@@ -188,7 +188,7 @@ mod tests {
     /// Une ligne illisible n'est pas une erreur du serveur : ne pas la
     /// transformer en échec d'envoi, qui bloquerait le vidage à tort.
     #[test]
-    fn une_ligne_illisible_ne_devient_pas_une_erreur() {
+    fn an_unreadable_line_does_not_become_an_error() {
         assert_eq!(error_of("ceci n'est pas du json"), None);
     }
 }

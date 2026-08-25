@@ -95,8 +95,18 @@ qu'à le fermer par erreur.
 
 ### Édition : minimale
 
-Flèches, `Backspace`, `Suppr`, `Home`/`End`, `PgUp`/`PgDn`, `Entrée`. Rien
-d'autre.
+Flèches, `Backspace`, `Suppr`, `Home`/`End`, `PgUp`/`PgDn`, `Entrée`, plus les
+sauts de mot : `Ctrl`+flèches et `Ctrl+Backspace`, et les deux bouts du texte :
+`Ctrl+Home` / `Ctrl+End`. Rien d'autre.
+
+> **Ajout du 2026-08-25.** Ces déplacements ne sont pas un retour du readline
+> écarté ci-dessous : ils ne portent **aucune lettre**, donc ne disputent rien
+> aux commandes, et c'est précisément ce qui les rendait admissibles. Ils
+> étaient jusque-là avalés par la branche `Ctrl` de `on_key`, qui rendait la
+> main sans regarder plus loin — un manque, pas une décision.
+>
+> `Ctrl+Backspace` arrive selon le terminal tel quel ou encodé en `^H`, donc
+> `Ctrl+H` vaut la même chose. La lettre `h` n'est prise par aucune commande.
 
 **Pas de readline/emacs** (`Ctrl+A`, `Ctrl+E`, `Ctrl+K`, `Ctrl+W`, `Ctrl+U`) :
 ces lettres sont plus utiles aux commandes quotidiennes qu'à un confort
@@ -127,6 +137,13 @@ Réimplémenter le glisser-sélectionner à l'intérieur (comme le fait
 partie la plus chère du projet, pour un outil dont la copie est par définition
 « **tout** copier » — et la correction ci-dessus lui retire son dernier
 argument.
+
+**Le clic simple, lui, pose le curseur** (ajout du 2026-08-25). Ce n'est pas le
+glisser-sélectionner écarté juste au-dessus : il n'y a ni sélection, ni état à
+tenir entre deux événements, seulement l'inverse du placement déjà fait au
+rendu — `ui::position_to_cursor` repasse par `wrap` avec les mêmes lignes et la
+même largeur, et compte en colonnes d'affichage comme lui. Un clic sur la barre
+du bas reste un clic de bouton : la barre prime sur le texte qu'elle recouvre.
 
 Barre du bas cliquable, une seule ligne :
 

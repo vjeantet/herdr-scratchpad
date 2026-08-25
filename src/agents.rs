@@ -202,12 +202,12 @@ mod tests {
     }
 
     #[test]
-    fn une_liste_vide_ne_rend_aucune_cible() {
+    fn an_empty_list_yields_no_target() {
         assert!(targets(&agents(&[]), Some("w1:t1"), None).is_empty());
     }
 
     #[test]
-    fn un_agent_de_ma_tab_est_une_cible() {
+    fn an_agent_in_my_tab_is_a_target() {
         let found = targets(&agents(&[("w2:p1", "claude", "w2:t1")]), Some("w2:t1"), None);
         assert_eq!(found, vec![target("claude", "w2:p1")]);
     }
@@ -215,13 +215,13 @@ mod tests {
     /// Le cœur du cloisonnement : ce qui vit ailleurs n'est pas joignable,
     /// quoi qu'il arrive.
     #[test]
-    fn un_agent_d_une_autre_tab_n_est_pas_une_cible() {
+    fn an_agent_from_another_tab_is_not_a_target() {
         let found = targets(&agents(&[("w2:p1", "claude", "w2:t9")]), Some("w2:t1"), None);
         assert!(found.is_empty(), "seule ma tab compte");
     }
 
     #[test]
-    fn deux_agents_de_ma_tab_sont_deux_cibles_ordonnees_par_pane_id() {
+    fn two_agents_in_my_tab_are_two_targets_ordered_by_pane_id() {
         let found = targets(
             &agents(&[("w1:p2", "codex", "w1:t1"), ("w1:p1", "claude", "w1:t1")]),
             Some("w1:t1"),
@@ -234,21 +234,21 @@ mod tests {
     }
 
     #[test]
-    fn une_tab_inconnue_ne_rend_aucune_cible() {
+    fn an_unknown_tab_yields_no_target() {
         let found = targets(&agents(&[("w1:p1", "claude", "w1:t1")]), Some("w9:t9"), None);
         assert!(found.is_empty());
     }
 
     /// Hors herdr, il n'y a pas de tab : on ne dépose nulle part.
     #[test]
-    fn sans_tab_id_il_n_y_a_aucune_cible() {
+    fn without_a_tab_id_there_is_no_target() {
         let found = targets(&agents(&[("w1:p1", "claude", "w1:t1")]), None, None);
         assert!(found.is_empty());
         assert!(targets(&agents(&[("w1:p1", "claude", "w1:t1")]), Some(""), None).is_empty());
     }
 
     #[test]
-    fn le_pane_courant_reste_exclu_meme_dans_la_bonne_tab() {
+    fn the_current_pane_stays_excluded_even_in_the_right_tab() {
         let found = targets(
             &agents(&[("w1:p1", "claude", "w1:t1"), ("w1:p2", "claude", "w1:t1")]),
             Some("w1:t1"),
@@ -258,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn un_agent_sans_nom_recoit_un_nom_de_repli() {
+    fn a_nameless_agent_gets_a_fallback_name() {
         let json = r#"{"result":{"agents":[{"pane_id":"w1:p1","tab_id":"w1:t1"}]}}"#;
         let found = targets(json, Some("w1:t1"), None);
         assert_eq!(found[0].agent, UNNAMED);
@@ -267,7 +267,7 @@ mod tests {
     /// L'ordre de `agent.list` n'est pas garanti : deux entrées inversées
     /// doivent rendre la même liste, sinon le cyclage saute.
     #[test]
-    fn l_ordre_est_stable_quel_que_soit_celui_de_la_reponse() {
+    fn order_is_stable_whatever_the_response_order() {
         let a = targets(
             &agents(&[("w1:p2", "codex", "w1:t1"), ("w1:p1", "claude", "w1:t1")]),
             Some("w1:t1"),
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn du_json_illisible_ne_panique_pas_et_rend_une_liste_vide() {
+    fn unreadable_json_does_not_panic_and_yields_an_empty_list() {
         assert!(targets("pas du json", Some("w1:t1"), None).is_empty());
         assert!(targets(r#"{"result":{}}"#, Some("w1:t1"), None).is_empty());
     }
@@ -291,7 +291,7 @@ mod tests {
     // -- tabs vivantes ----------------------------------------------------
 
     #[test]
-    fn live_tab_ids_rend_les_ids_d_un_tab_list_bien_forme() {
+    fn live_tab_ids_returns_the_ids_of_a_well_formed_tab_list() {
         assert_eq!(
             live_tab_ids(&tabs(&["w1:t1", "w2:t3"])),
             vec!["w1:t1".to_owned(), "w2:t3".to_owned()]
@@ -301,7 +301,7 @@ mod tests {
     /// Une liste vide déclenche l'abstention du ménage : c'est une panne, pas
     /// une information.
     #[test]
-    fn live_tab_ids_rend_une_liste_vide_sur_du_json_illisible() {
+    fn live_tab_ids_returns_an_empty_list_on_unreadable_json() {
         assert!(live_tab_ids("pas du json").is_empty());
         assert!(live_tab_ids(r#"{"result":{}}"#).is_empty());
         assert!(live_tab_ids(r#"{"error":{"code":"nope"}}"#).is_empty());
@@ -310,20 +310,20 @@ mod tests {
     // -- cyclage ----------------------------------------------------------
 
     #[test]
-    fn next_boucle_et_revient_au_debut() {
+    fn next_wraps_around_to_the_first() {
         let list = [target("a", "w1:p1"), target("b", "w1:p2")];
         assert_eq!(next(&list, Some(0)), Some(1));
         assert_eq!(next(&list, Some(1)), Some(0));
     }
 
     #[test]
-    fn next_sur_une_liste_vide_rend_rien() {
+    fn next_on_an_empty_list_yields_nothing() {
         assert_eq!(next(&[], Some(0)), None);
         assert_eq!(next(&[], None), None);
     }
 
     #[test]
-    fn next_sans_cible_courante_prend_la_premiere() {
+    fn next_without_a_current_target_takes_the_first() {
         let list = [target("a", "w1:p1")];
         assert_eq!(next(&list, None), Some(0));
     }
@@ -331,14 +331,14 @@ mod tests {
     // -- libellé ----------------------------------------------------------
 
     #[test]
-    fn label_affiche_l_agent_et_le_suffixe_de_son_pane() {
+    fn label_shows_the_agent_and_its_pane_suffix() {
         assert_eq!(label(&target("claude", "w2:p3"), 40), "→ claude·p3");
     }
 
     /// Le discriminant qui manquait : deux `claude` dans la même tab ne se
     /// lisaient pas l'un de l'autre.
     #[test]
-    fn deux_agents_de_meme_nom_ont_deux_libelles_distincts() {
+    fn two_agents_with_the_same_name_get_distinct_labels() {
         assert_ne!(
             label(&target("claude", "w3:p1"), 40),
             label(&target("claude", "w3:p2"), 40)
@@ -346,12 +346,12 @@ mod tests {
     }
 
     #[test]
-    fn label_rogne_le_suffixe_avant_le_nom_de_l_agent() {
+    fn label_trims_the_suffix_before_the_agent_name() {
         assert_eq!(label(&target("claude", "w2:p3"), 9), "→ claude");
     }
 
     #[test]
-    fn label_ne_deborde_jamais_de_la_largeur() {
+    fn label_never_overflows_the_width() {
         let t = target("claude", "w2:p3");
         for width in 0..20 {
             assert!(columns(&label(&t, width)) <= width, "largeur {width}");
@@ -361,7 +361,7 @@ mod tests {
     /// Un `pane_id` sans `:` n'est pas prévu par herdr, mais il ne doit pas
     /// produire de libellé vide.
     #[test]
-    fn un_pane_id_sans_deux_points_sert_de_suffixe_entier() {
+    fn a_pane_id_without_a_colon_is_its_own_suffix() {
         assert_eq!(label(&target("claude", "p9"), 40), "→ claude·p9");
     }
 }

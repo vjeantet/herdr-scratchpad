@@ -399,31 +399,31 @@ mod tests {
     // -- la clé de tab ----------------------------------------------------
 
     #[test]
-    fn le_nom_du_fichier_porte_le_tab_id() {
+    fn the_file_name_carries_the_tab_id() {
         assert_eq!(file_name(Some("w1:t2")), "scratchpad-w1:t2.txt");
     }
 
     /// Hors herdr il n'y a pas de tab : le binaire reste utilisable à la main,
     /// sur le nom nu.
     #[test]
-    fn sans_tab_id_le_nom_est_celui_sans_suffixe() {
+    fn without_a_tab_id_the_name_has_no_suffix() {
         assert_eq!(file_name(None), STATE_FILE);
     }
 
     #[test]
-    fn deux_tabs_ne_partagent_pas_leur_fichier() {
+    fn two_tabs_do_not_share_their_file() {
         assert_ne!(file_name(Some("w1:t1")), file_name(Some("w1:t2")));
     }
 
     #[test]
-    fn le_tab_id_se_relit_dans_le_nom_du_fichier() {
+    fn the_tab_id_can_be_read_back_from_the_file_name() {
         assert_eq!(tab_id_of("scratchpad-w1:t2.txt"), Some("w1:t2"));
     }
 
     /// Le fichier sans clé n'appartient à aucune tab : il ne doit jamais
     /// devenir candidat au ménage.
     #[test]
-    fn le_fichier_sans_suffixe_ne_porte_aucun_tab_id() {
+    fn the_unsuffixed_file_carries_no_tab_id() {
         assert_eq!(tab_id_of(STATE_FILE), None);
         assert_eq!(tab_id_of("scratchpad-.txt"), None);
         assert_eq!(tab_id_of("scratchpad-w1:t1.tmp.42"), None, "un temporaire d'écriture");
@@ -432,7 +432,7 @@ mod tests {
     // -- purge des vestiges -----------------------------------------------
 
     #[test]
-    fn purge_legacy_supprime_l_ancien_global_et_la_cible_memorisee() {
+    fn purge_legacy_deletes_the_old_global_buffer_and_the_stored_target() {
         let dir = scratch("purge");
         touch(&dir.join(STATE_FILE));
         touch(&dir.join(TARGET_FILE));
@@ -447,14 +447,14 @@ mod tests {
     }
 
     #[test]
-    fn purge_legacy_sur_un_repertoire_vide_ne_panique_pas() {
+    fn purge_legacy_on_an_empty_directory_does_not_panic() {
         purge_legacy(&scratch("purgevide"));
     }
 
     /// Dans le repli, `scratchpad.txt` est le buffer d'un binaire lancé à la
     /// main : seule la cible mémorisée y est un vestige.
     #[test]
-    fn purge_legacy_target_epargne_le_buffer_sans_suffixe() {
+    fn purge_legacy_target_spares_the_unsuffixed_buffer() {
         let dir = scratch("purgetarget");
         touch(&dir.join(STATE_FILE));
         touch(&dir.join(TARGET_FILE));
@@ -466,7 +466,7 @@ mod tests {
     // -- ménage des orphelins ---------------------------------------------
 
     #[test]
-    fn sweep_supprime_un_buffer_dont_la_tab_a_disparu() {
+    fn sweep_deletes_a_buffer_whose_tab_is_gone() {
         let dir = scratch("sweep");
         let own = dir.join("scratchpad-w1:t1.txt");
         touch(&own);
@@ -479,7 +479,7 @@ mod tests {
     /// Le nôtre survit quoi qu'il arrive : une tab absente de la liste au
     /// démarrage ne doit pas nous faire effacer le texte qu'on vient d'ouvrir.
     #[test]
-    fn sweep_ne_supprime_jamais_le_sien() {
+    fn sweep_never_deletes_its_own() {
         let dir = scratch("sweepown");
         let own = dir.join("scratchpad-w1:t1.txt");
         touch(&own);
@@ -489,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    fn sweep_ne_touche_pas_au_fichier_sans_suffixe() {
+    fn sweep_leaves_the_unsuffixed_file_alone() {
         let dir = scratch("sweepnu");
         touch(&dir.join(STATE_FILE));
 
@@ -498,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn sweep_sur_un_repertoire_absent_ne_panique_pas() {
+    fn sweep_on_a_missing_directory_does_not_panic() {
         let dir = scratch("sweepabsent").join("jamais-cree");
         sweep_orphans(&dir, &["w1:t1".to_owned()], &dir.join("x.txt"));
     }
@@ -511,18 +511,18 @@ mod tests {
     }
 
     #[test]
-    fn le_chemin_d_export_porte_le_tab_id() {
+    fn the_export_path_carries_the_tab_id() {
         assert!(export_path(Some("w1:t2")).ends_with("herdr-scratchpad-w1:t2.txt"));
     }
 
     /// Deux tabs qui exportent ne doivent pas s'écraser l'une l'autre.
     #[test]
-    fn deux_tabs_n_exportent_pas_dans_le_meme_fichier() {
+    fn two_tabs_do_not_export_to_the_same_file() {
         assert_ne!(export_path(Some("w1:t1")), export_path(Some("w1:t2")));
     }
 
     #[test]
-    fn sans_tab_id_l_export_garde_le_chemin_nu() {
+    fn without_a_tab_id_the_export_keeps_the_bare_path() {
         assert!(export_path(None).ends_with("herdr-scratchpad.txt"));
     }
 }
