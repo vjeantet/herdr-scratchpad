@@ -153,6 +153,31 @@ sauts de mot : `Ctrl`+flèches et `Ctrl+Backspace`, et les deux bouts du texte :
 > `Ctrl+Backspace` arrive selon le terminal tel quel ou encodé en `^H`, donc
 > `Ctrl+H` vaut la même chose. La lettre `h` n'est prise par aucune commande.
 
+> **Ajout du 2026-08-29.** `Alt`+flèches saute un mot comme `Ctrl`+flèches.
+> Ce n'est pas un doublon de confort : sur macOS, `Ctrl+←`/`Ctrl+→` sont les
+> raccourcis Mission Control « se déplacer d'un espace », consommés par le
+> système avant tout terminal, et la convention native y est `Option`+flèches
+> — que Ghostty transmet en `Alt` (vérifié : Claude Code, dans un pane herdr,
+> les reçoit). La touche du Pi reste ; celle du Mac s'ajoute.
+>
+> La branche `Alt` ne prend **que** les flèches, et n'a délibérément pas la
+> clause fourre-tout de la branche `Ctrl`. Sur un clavier français, `Option`
+> est la touche de composition de `{`, `[`, `|`, `#` : tout avaler y rendrait
+> ces caractères intapables. Une combinaison `Alt` non reconnue doit retomber
+> dans le `match` ordinaire et taper son caractère.
+>
+> Le saut de mot écoute donc **deux** formes : `Alt`+flèche, et `Alt+b` /
+> `Alt+f`. La seconde n'est pas un retour du readline écarté plus bas, c'est
+> la seule qui arrive réellement : Ghostty traduit `Option`+flèche en `esc:b`
+> / `esc:f` par un raccourci de sa configuration par défaut, avant tout
+> encodage. Sans elle, `Option+←` écrit un `b`.
+>
+> Le protocole clavier Kitty a été essayé le même jour, sur l'hypothèse
+> fausse qu'il fallait le demander pour recevoir la touche. Il est
+> **retiré** : il ne change rien à `esc:b`, et le seul risque qu'il couvrait
+> (une combinaison `Alt` encodée en DEC 1036 arrivant comme `Esc`, donc comme
+> une fermeture) ne s'est jamais manifesté ici.
+
 **Pas de readline/emacs** (`Ctrl+A`, `Ctrl+E`, `Ctrl+K`, `Ctrl+W`, `Ctrl+U`) :
 ces lettres sont plus utiles aux commandes quotidiennes qu'à un confort
 d'édition fine qu'on utilise une fois par mois. Le pari s'est vérifié : `Ctrl+E`

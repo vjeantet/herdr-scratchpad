@@ -264,6 +264,37 @@ impl App {
             return;
         }
 
+        // macOS place le saut de mot sur `Option`, pas sur `Ctrl` — que le
+        // système garde pour Mission Control. On l'accepte en plus de `Ctrl`,
+        // sous ses **deux** formes, parce que la flèche n'arrive pas toujours
+        // comme une flèche :
+        //
+        // - `Alt`+flèche, la forme directe ;
+        // - `Alt+b` / `Alt+f`, la convention meta de readline. Ghostty y
+        //   traduit `Option`+flèche de lui-même, par un raccourci de sa
+        //   configuration par défaut (`ghostty +list-keybinds --default` :
+        //   `alt+arrow_left=esc:b`, `alt+arrow_right=esc:f`), donc **avant**
+        //   tout encodage de terminal. Sans cette branche, `Option+←`
+        //   écrivait `b`.
+        //
+        // Et **seulement** ces touches : pas de branche fourre-tout ici,
+        // contrairement au bloc `Ctrl` ci-dessus. `Alt` sur une autre lettre
+        // doit continuer à taper sa lettre, qui est le seul moyen d'écrire
+        // `{` ou `|` sur un clavier français.
+        if key.modifiers.contains(KeyModifiers::ALT) && !altgr {
+            match key.code {
+                KeyCode::Left | KeyCode::Char('b') => {
+                    self.buf.word_left();
+                    return;
+                }
+                KeyCode::Right | KeyCode::Char('f') => {
+                    self.buf.word_right();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         let page = if self.body.height > 0 {
             self.body.height as usize
         } else {
@@ -689,6 +720,13 @@ mod tests {
         KeyEvent::new(code, KeyModifiers::CONTROL)
     }
 
+    /// `Alt` sur une touche qui n'est pas une lettre. C'est la forme directe
+    /// du saut de mot, celle qui arrive hors de Ghostty — lui la traduit en
+    /// `Alt+b` / `Alt+f` avant de l'envoyer.
+    fn alt_code(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::ALT)
+    }
+
     fn text_of(app: &App) -> String {
         app.buf.text()
     }
@@ -1002,6 +1040,52 @@ mod tests {
         app.on_key(ctrl_code(KeyCode::Left));
         app.on_key(key(KeyCode::Char('X')));
         assert_eq!(text_of(&app), "un Xdeux");
+    }
+
+    #[test]
+    fn alt_arrow_jumps_a_word_too() {
+        let mut app = App::headless("un deux");
+        app.on_key(alt_code(KeyCode::Left));
+        app.on_key(key(KeyCode::Char('X')));
+        assert_eq!(
+            text_of(&app),
+            "un Xdeux",
+            "la forme directe doit marcher là où le terminal ne la traduit pas"
+        );
+    }
+
+    #[test]
+    fn alt_b_and_alt_f_jump_a_word_like_the_arrows() {
+        let mut app = App::headless("un deux");
+        app.on_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        app.on_key(key(KeyCode::Char('X')));
+        assert_eq!(
+            text_of(&app),
+            "un Xdeux",
+            "Ghostty traduit Option+flèche en esc:b / esc:f avant tout encodage"
+        );
+
+        let mut app = App::headless("un deux");
+        app.on_key(ctrl_code(KeyCode::Home));
+        app.on_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT));
+        app.on_key(key(KeyCode::Char('X')));
+        assert_eq!(
+            text_of(&app),
+            "unX deux",
+            "Ghostty traduit Option+flèche en esc:b / esc:f avant tout encodage"
+        );
+    }
+
+    #[test]
+    fn alt_on_a_letter_still_types_it() {
+        let mut app = App::headless("");
+        app.on_key(KeyEvent::new(KeyCode::Char('{'), KeyModifiers::ALT));
+        assert_eq!(
+            text_of(&app),
+            "{",
+            "Option+caractère compose sur un clavier français : la branche Alt \
+             ne doit rien avaler hors des touches du saut de mot"
+        );
     }
 
     #[test]

@@ -123,7 +123,7 @@ Nothing to save, nothing to name, nothing to clean up afterwards.
 | `Ctrl+L` | `^L clear` | wipes, no confirmation |
 | `Ctrl+S` | — | writes `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` |
 | `Ctrl+Z` | `^Z undo` | brings back the last wiped or emitted content |
-| `Ctrl`+arrows | — | jump a word |
+| `Ctrl`+arrows, `Alt`+arrows, `Alt+b` / `Alt+f` | — | jump a word (use `Option` on macOS, where `Ctrl`+arrows belongs to Mission Control) |
 | `Ctrl+Backspace` | — | delete the word to the left |
 | `Ctrl+Home` / `Ctrl+End` | — | start / end of the text |
 | `Esc` | — | closes the pane |

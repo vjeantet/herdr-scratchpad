@@ -23,7 +23,7 @@ Tout ce que `DESIGN.md` décrit est implémenté et vérifié sur des panes viva
 | --- | --- | --- |
 | coller / éditer / recharger depuis le fichier | — | §1, §8, §9, §11 |
 | poser le curseur au clic | clic | §Souris |
-| sauter / effacer un mot | `Ctrl`+flèches, `Ctrl+Backspace` | §4 |
+| sauter / effacer un mot | `Ctrl`/`Alt`+flèches, `Ctrl+Backspace` | §4 |
 | aller au début / à la fin du texte | `Ctrl+Home`, `Ctrl+End` | §4 |
 | un buffer par tab, ménage des orphelins | — | §8, §9 |
 | copier vers le terminal hôte (OSC 52) | `Ctrl+C` | §5 |
@@ -322,9 +322,45 @@ le pane focalisé et dégrader la décision en `OPEN`, donc en doublon.
 
 Il pose le mode brut et l'écran alterné, rien d'autre. Il faut activer à la main
 `EnableMouseCapture`, `EnableBracketedPaste` et `EnableFocusChange` — et
-**chaîner un hook de panique devant celui de ratatui** pour les désactiver,
-sinon une panique laisse le terminal de l'utilisateur bloqué en mode
-rapport-souris.
+**chaîner un hook de panique devant celui de ratatui** pour les désactiver, sinon une panique laisse le terminal de
+l'utilisateur bloqué en mode rapport-souris.
+
+### `Option`+flèche n'arrive jamais comme une flèche
+
+Ghostty la traduit lui-même, par un raccourci de sa **configuration par
+défaut** — `ghostty +list-keybinds --default` :
+
+```
+keybind = alt+arrow_left=esc:b
+keybind = alt+arrow_right=esc:f
+```
+
+C'est la convention meta de readline, et c'est ce qui fait marcher le saut de
+mot dans zsh et dans Claude Code. Le pane reçoit donc `ESC b`, que crossterm
+rend en `Char('b')` + `ALT` : sans la branche `Alt+b`/`Alt+f` de `on_key`,
+`Option+←` **écrit un `b`**. Le raccourci agit dans l'app Ghostty, avant tout
+encodage de terminal — aucun mode côté pane n'y change rien.
+
+`Shift+Option`+flèche n'est visée par aucun raccourci et suit la voie normale
+(`CSI 1;4D`, donc `Left` + `ALT|SHIFT`). Ce grand écart entre les deux est le
+symptôme qui met sur la piste.
+
+### DEC 1036 : une combinaison `Alt` peut arriver en `Esc`
+
+En encodage legacy, herdr encode `Alt`+touche selon DEC 1036 (« alt sends
+escape prefix », l'option `ALT_ESC_PREFIX` de l'encodeur Ghostty — `herdr
+src/ghostty/bindings.rs:3929`, appliquée par `key_encoder.set_from_terminal`,
+`herdr src/pane/terminal.rs:1044`) : `ESC` **suivi de** la séquence de la
+touche. Or crossterm rend un `ESC` immédiatement suivi d'un autre `ESC` comme
+la touche `Esc` (`event/sys/unix/parse.rs:77`) — donc, depuis que `Esc` ferme,
+comme un pane qui disparaît sous les doigts.
+
+Sans objet pour `Option`+flèche, qui n'emprunte pas ce chemin (piège
+précédent). Le protocole clavier Kitty (`DISAMBIGUATE_ESCAPE_CODES`) y
+répondrait, et a été essayé le 2026-08-29 : **retiré**, parce qu'il avait été
+posé sur ce diagnostic-là alors que le bug venait de `esc:b`, et qu'il change
+l'encodage de toutes les touches contre un risque que rien n'a manifesté.
+À rouvrir le jour où un `Esc` fantôme se produit vraiment.
 
 ### `Shift`+souris appartient au terminal
 
@@ -337,6 +373,14 @@ au glisser malgré la capture.
 Sur Windows, taper `@` ou `#` déclencherait une commande sans la garde
 `altgr` de `App::on_key`. Le plugin ne cible pas Windows aujourd'hui, mais la
 garde ne coûte rien et évite un bug silencieux le jour où ça change.
+
+Depuis que `Alt`+flèches saute un mot (2026-08-29), cette garde porte deux
+poids : elle protège l'AltGr de Windows **et** elle laisse `Option`+caractère
+écrire ses `{`, `[`, `|` sur un clavier français macOS. D'où la forme de la
+branche `Alt` : elle ne matche que `Left`/`Right` et n'a **pas** de clause
+fourre-tout, contrairement à la branche `Ctrl` qui, elle, doit tout avaler.
+Ajouter un `_ => {}` avalant dans la branche `Alt` rendrait ces caractères
+intapables — le test `alt_on_a_letter_still_types_it` est là pour ça.
 
 ### Les horloges se pompent à chaque tour de boucle
 
@@ -376,7 +420,8 @@ Ne pas ajouter sans rouvrir `DESIGN.md` :
 
 - readline (`Ctrl+A/E/K/W/U`) — ces lettres sont réservées aux commandes,
   `Ctrl+E` est devenue « envoyer ». Les sauts de mot (`Ctrl`+flèches,
-  `Ctrl+Backspace`, `Ctrl+Home`/`Ctrl+End`, ajoutés le 2026-08-25) ne sont pas
+  `Ctrl+Backspace`, `Ctrl+Home`/`Ctrl+End`, ajoutés le 2026-08-25, doublés de
+  `Alt`+flèches le 2026-08-29 pour macOS) ne sont pas
   une entorse : ils ne portent aucune lettre. Toute autre combinaison `Ctrl` est **avalée** dans
   `on_key`, jamais laissée retomber dans le `match` ordinaire — elle y ferait
   *taper* sa lettre ;
