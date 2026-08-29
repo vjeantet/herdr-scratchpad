@@ -23,3 +23,9 @@ ratatui = "0.30"
 crossterm = "0.29"
 unicode-width = "0.2"
 serde_json = "1"
+
+# Le binaire est publié en release et téléchargé par
+# scripts/fetch-or-build.sh : les tables de symboles ne servent à personne au
+# bout du fil.
+[profile.release]
+strip = true

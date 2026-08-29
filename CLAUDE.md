@@ -118,11 +118,41 @@ nettoyage est `pane send-keys <agent> ctrl+u`, qui défait le collage.
 | `src/launch.rs` | décisions du toggle, en fonctions pures |
 | `src/ipc.rs` | client socket : estampille, `agent.list`, `tab.list`, dépôt |
 | `scripts/open-scratchpad.sh` | enchaînement de commandes herdr, aucune décision |
+| `scripts/fetch-or-build.sh` | étape `[[build]]` : télécharge le précompilé vérifié, sinon compile |
 
 **Règle** : le script ne décide rien. Toute logique vit dans `launch.rs`, en
 fonctions pures testables (`--launch-decision`, `--focused-pane`,
 `--open-plan`). Un bug de toggle se reproduit avec un `echo | binaire`, jamais
 en réouvrant des panes à la main.
+
+## Publier une version
+
+`[[build]]` n'est plus `cargo build --release` : c'est
+`scripts/fetch-or-build.sh`, qui télécharge l'asset publié pour la version
+déclarée et la plateforme, vérifie son SHA-256, et **retombe sur cargo au
+moindre manque**. Une release ratée dégrade l'installation en « exige Rust »,
+jamais en plugin cassé.
+
+Pour publier : aligner la version dans `Cargo.toml` **et** `herdr-plugin.toml`,
+puis pousser le tag `v<version>`. Le premier job de
+`.github/workflows/release.yml` refuse de continuer si les trois ne
+concordent pas — un précompilé nommé d'après une version que personne ne
+déclare n'est trouvable par aucune installation.
+
+Deux points à ne pas « simplifier » :
+
+- **La barrière d'exécution appelle `--focused-pane </dev/null`, pas le binaire
+  nu.** Le script de herdr-palette, dont celui-ci est repris, lance sa cible
+  sans argument parce qu'elle imprime alors son usage. Ici, sans argument,
+  c'est la TUI : elle prendrait l'écran de l'installation ou s'y bloquerait.
+  `--focused-pane` sur une entrée vide rend une chaîne vide et sort en 0.
+- **Les cibles Linux sont en musl statique.** Un binaire glibc construit sur le
+  runner ne démarrerait pas sur Debian 12 — la machine même à qui ceci épargne
+  une compilation de 60 s.
+
+L'appariement se fait par **version, pas par commit** : un checkout en avance
+sur le tag installe le binaire du tag. Le marqueur `COMMIT` de la release sert
+à le dire à l'utilisateur, pas à empêcher l'installation.
 
 ## Écrire des tests
 

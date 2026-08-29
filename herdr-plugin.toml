@@ -14,8 +14,15 @@ description = "Persistent editable clipboard docked at the bottom: one plain-tex
 min_herdr_version = "0.8.0"
 platforms = ["linux", "macos"]
 
+# Étape lancée par `herdr plugin install` après le clone : le manifeste vise
+# target/release/herdr-scratchpad, qu'un checkout frais ne possède pas. herdr
+# exécute la commande avec la racine du manifeste pour cwd, d'où le chemin
+# relatif. Le script télécharge le binaire précompilé publié pour cette version
+# et cette plateforme et vérifie son SHA-256, en retombant sur
+# `cargo build --release` au moindre manque — un toolchain Rust n'est donc
+# requis que lorsqu'aucune release ne correspond (cf. scripts/fetch-or-build.sh).
 [[build]]
-command = ["cargo", "build", "--release"]
+command = ["/bin/sh", "scripts/fetch-or-build.sh"]
 
 # Repli déclaratif : ouvre le pane sans le placement voulu, quand le script
 # n'est pas disponible ou que le binaire n'est pas encore construit.

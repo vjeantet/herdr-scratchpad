@@ -46,10 +46,18 @@ That clones the repo, shows you what it's about to install, and **asks before
 doing anything**. On yes it runs the manifest's build step, then enables the
 plugin. Pass `--yes` to skip the prompt — required when stdin isn't a terminal.
 
-**One prerequisite: a Rust toolchain**, because that build step is
-`cargo build --release` and it runs *on your machine*. **Rust ≥ 1.88** — the
-crate uses let-chains, which the 1.85 of edition 2024 doesn't have. Nothing
-else: no system libraries, no runtime. Linux and macOS.
+**No toolchain needed on the common platforms.** The build step downloads the
+prebuilt binary published for the version you're installing and your platform,
+checks its SHA-256, and installs it. Five targets are published: macOS on Apple
+silicon and Intel, Linux on x86_64, aarch64 and armv7 — the Linux ones are
+static musl, so they start on an old distribution too (a Raspberry Pi on
+Debian 12 included).
+
+Anything else — another platform, no release for that version, a download or
+checksum that doesn't check out — falls back to `cargo build --release` on your
+machine, which is what this step always did. **That path wants Rust ≥ 1.88**:
+the crate uses let-chains, which the 1.85 of edition 2024 doesn't have. Nothing
+else either way: no system libraries, no runtime.
 
 Check it works before touching any config:
 
@@ -253,6 +261,18 @@ cargo clippy --all-targets -- -D warnings
 All three green before shipping. One catch worth knowing: **close and reopen
 the pane after every `cargo build --release`**. An already-open scratchpad keeps
 running the old binary, so you end up testing the behaviour you just changed.
+
+**Cutting a release.** Bump the version in `Cargo.toml` *and* in
+`herdr-plugin.toml` — they must agree with each other and with the tag, or
+`.github/workflows/release.yml` stops there rather than publish binaries no
+install could ever find. Then push a `v<version>` tag: the workflow drafts a
+release, has each target upload its own binary and `.sha256` into it, and
+undrafts only once the whole matrix is green. Until that last step every asset
+URL 404s, and installs simply build from source.
+
+The match is by **version, not by commit**. A checkout ahead of the last tag
+still installs that tag's binary; the install prints a note saying so, read from
+the `COMMIT` marker the release publishes.
 
 `DESIGN.md` holds the what and the why; `CLAUDE.md` the how and the traps.
 Both are in French.

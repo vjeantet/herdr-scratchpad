@@ -1,0 +1,160 @@
+name: Release
+
+# Publie les binaires précompilés qu'installe scripts/fetch-or-build.sh au
+# moment du `herdr plugin install`. Sans release pour la version que déclare un
+# checkout, ce script retombe sur `cargo build --release` — une release ratée
+# ou absente dégrade donc l'installation en « exige un toolchain Rust », jamais
+# en plugin cassé.
+#
+# Forme : une release brouillon est créée d'abord, chaque cible y verse son
+# propre binaire et son propre `<asset>.sha256`, et le brouillon n'est publié
+# qu'une fois toute la matrice au vert. Rien n'est jamais téléchargeable dans
+# un état partiel, et aucun job n'a besoin des fichiers d'un autre.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  create-release:
+    name: create the draft release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # actions/checkout@v7.0.1, épinglé sur le commit de sa release.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # fetch-or-build.sh choisit un précompilé d'après la version de
+      # Cargo.toml, et herdr affiche celle de herdr-plugin.toml. Une release
+      # dont le tag serait en désaccord avec l'une ou l'autre publierait des
+      # binaires qu'aucune installation ne pourrait trouver.
+      - name: Verify the tag matches Cargo.toml and herdr-plugin.toml
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(grep -E '^version *= *"' Cargo.toml | head -n1 | sed -E 's/^version *= *"([^"]+)".*/\1/')"
+          manifest="$(grep -E '^version *= *"' herdr-plugin.toml | head -n1 | sed -E 's/^version *= *"([^"]+)".*/\1/')"
+          if [ "$tag" != "$crate" ]; then
+            echo "tag $GITHUB_REF_NAME ($tag) != Cargo.toml version ($crate)" >&2
+            exit 1
+          fi
+          if [ "$tag" != "$manifest" ]; then
+            echo "tag $GITHUB_REF_NAME ($tag) != herdr-plugin.toml version ($manifest)" >&2
+            exit 1
+          fi
+
+      # COMMIT note la source dont cette release est issue. L'installation
+      # apparie un précompilé par version, pas par commit, et ne récupère ce
+      # marqueur qu'au mieux, pour dire à l'utilisateur que son checkout est en
+      # avance sur lui.
+      - name: Create the draft release
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
+          printf '%s\n' "$GITHUB_SHA" > COMMIT
+          gh release upload "$GITHUB_REF_NAME" COMMIT --clobber
+
+  build:
+    name: build ${{ matrix.triple }}
+    needs: create-release
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-latest
+            triple: aarch64-apple-darwin
+            cross: false
+          - os: macos-latest
+            triple: x86_64-apple-darwin
+            cross: false
+          # Toutes les cibles Linux sont en musl statique, délibérément : une
+          # construction glibc faite sur le runner ne démarrerait pas sur
+          # Debian 12 (glibc 2.36), qui est le genre de machine à qui ceci
+          # épargne le plus de compilation. armv7 couvre un Raspberry Pi en
+          # userland armhf 32 bits.
+          - os: ubuntu-latest
+            triple: x86_64-unknown-linux-musl
+            cross: true
+          - os: ubuntu-latest
+            triple: aarch64-unknown-linux-musl
+            cross: true
+          - os: ubuntu-latest
+            triple: armv7-unknown-linux-musleabihf
+            cross: true
+    runs-on: ${{ matrix.os }}
+    steps:
+      # actions/checkout@v7.0.1, épinglé sur le commit de sa release.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # Le stable préinstallé sur l'image du runner : aucune action tierce à
+      # épingler. Le plancher réel du crate est 1.88 (let-chains, cf.
+      # Cargo.toml) ; `cross` monte le toolchain rustup de l'hôte dans son
+      # conteneur, donc cette version vaut aussi pour les cibles croisées.
+      - name: Rust toolchain in use
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Add the target
+        if: ${{ !matrix.cross }}
+        run: rustup target add "${{ matrix.triple }}"
+
+      # cross construit dans un conteneur qui porte déjà les chaînes croisées
+      # musl ; le musl-tools d'apt ne couvre que x86_64. Épinglé, et --locked
+      # pour que sa propre résolution de dépendances ne dérive pas.
+      - name: Install cross
+        if: ${{ matrix.cross }}
+        run: cargo install cross --locked --version 0.2.5
+
+      - name: Build
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target "${{ matrix.triple }}"
+          else
+            cargo build --release --target "${{ matrix.triple }}"
+          fi
+
+      # Le nom de l'asset est celui que fetch-or-build.sh dérive de `uname`, et
+      # la ligne de somme porte ce même nom — le script s'appuie dessus.
+      - name: Stage the asset and its checksum
+        run: |
+          triple="${{ matrix.triple }}"
+          asset="herdr-scratchpad-$triple"
+          mkdir -p dist
+          cp "target/$triple/release/herdr-scratchpad" "dist/$asset"
+          cd dist
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$asset" > "$asset.sha256"
+          else
+            shasum -a 256 "$asset" > "$asset.sha256"
+          fi
+          cat "$asset.sha256"
+
+      - name: Upload into the draft release
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
+  publish:
+    name: publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Sortir du brouillon en dernier est ce qui rend toute la matrice
+      # atomique du point de vue de l'installation : jusqu'à cette étape,
+      # chaque URL d'asset est en 404 et fetch-or-build.sh construit simplement
+      # depuis les sources.
+      - name: Undraft
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
