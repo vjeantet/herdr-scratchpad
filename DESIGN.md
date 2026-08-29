@@ -166,6 +166,9 @@ sauts de mot : `Ctrl`+flèches et `Ctrl+Backspace`, et les deux bouts du texte :
 > ces caractères intapables. Une combinaison `Alt` non reconnue doit retomber
 > dans le `match` ordinaire et taper son caractère.
 >
+> `Alt+Backspace` efface le mot de gauche, la touche que macOS consacre à ce
+> geste ; `Ctrl+Backspace` reste, c'est celle de Linux et du Pi.
+>
 > Le saut de mot écoute donc **deux** formes : `Alt`+flèche, et `Alt+b` /
 > `Alt+f`. La seconde n'est pas un retour du readline écarté plus bas, c'est
 > la seule qui arrive réellement : Ghostty traduit `Option`+flèche en `esc:b`

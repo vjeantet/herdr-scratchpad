@@ -23,7 +23,7 @@ Tout ce que `DESIGN.md` décrit est implémenté et vérifié sur des panes viva
 | --- | --- | --- |
 | coller / éditer / recharger depuis le fichier | — | §1, §8, §9, §11 |
 | poser le curseur au clic | clic | §Souris |
-| sauter / effacer un mot | `Ctrl`/`Alt`+flèches, `Ctrl+Backspace` | §4 |
+| sauter / effacer un mot | `Ctrl`/`Alt`+flèches, `Ctrl`/`Alt`+`Backspace` | §4 |
 | aller au début / à la fin du texte | `Ctrl+Home`, `Ctrl+End` | §4 |
 | un buffer par tab, ménage des orphelins | — | §8, §9 |
 | copier vers le terminal hôte (OSC 52) | `Ctrl+C` | §5 |

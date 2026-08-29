@@ -277,6 +277,11 @@ impl App {
         //   tout encodage de terminal. Sans cette branche, `Option+←`
         //   écrivait `b`.
         //
+        // `Alt+Backspace` efface le mot de gauche, comme `Ctrl+Backspace`.
+        // Elle n'est visée par aucun raccourci de Ghostty (`+list-keybinds
+        // --default` n'en détourne que les deux flèches), donc elle suit la
+        // voie normale et arrive telle quelle.
+        //
         // Et **seulement** ces touches : pas de branche fourre-tout ici,
         // contrairement au bloc `Ctrl` ci-dessus. `Alt` sur une autre lettre
         // doit continuer à taper sa lettre, qui est le seul moyen d'écrire
@@ -289,6 +294,11 @@ impl App {
                 }
                 KeyCode::Right | KeyCode::Char('f') => {
                     self.buf.word_right();
+                    return;
+                }
+                KeyCode::Backspace => {
+                    self.buf.delete_word_left();
+                    self.touch();
                     return;
                 }
                 _ => {}
@@ -1073,6 +1083,17 @@ mod tests {
             text_of(&app),
             "unX deux",
             "Ghostty traduit Option+flèche en esc:b / esc:f avant tout encodage"
+        );
+    }
+
+    #[test]
+    fn alt_backspace_deletes_the_word_on_the_left() {
+        let mut app = App::headless("un deux");
+        app.on_key(alt_code(KeyCode::Backspace));
+        assert_eq!(
+            text_of(&app),
+            "un ",
+            "macOS met l'effacement de mot sur Option+Backspace"
         );
     }
 
