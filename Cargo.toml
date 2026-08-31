@@ -1,6 +1,6 @@
 [package]
 name = "herdr-scratchpad"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 # Les let-chains (`if … && let Some(x) = …`, src/ui.rs:94) sont stables depuis
 # 1.88 : c'est le plancher réel, pas le 1.85 de l'édition 2024.
