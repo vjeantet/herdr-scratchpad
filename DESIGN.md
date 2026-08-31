@@ -508,6 +508,15 @@ accumulation, ce que §1 refuse.
 **En cas d'échec, on ne vide pas.** C'est ce qui rend l'erreur sans conséquence,
 et donc ce qui autorise l'absence de confirmation.
 
+**Une sélection restreint le dépôt à elle-même** (2026-08-31), exactement comme
+elle restreint la copie (§5) : seul le texte surligné part, et seul lui quitte
+le scratchpad — le reste demeure, curseur posé là où était la sélection. C'est
+ce qui permet d'écrire un brouillon long et de n'en envoyer qu'un paragraphe,
+sans passer par « couper, envoyer, recoller ». Le déplacement reste un
+déplacement : la case de secours reçoit le texte *entier* d'avant le retrait,
+donc `Ctrl+Z` rend le scratchpad tel qu'il était juste avant l'envoi, dans les
+deux cas.
+
 ### 14.3 La cible est affichée en permanence
 
 C'est le garde-fou principal, et il remplace toute confirmation modale — le

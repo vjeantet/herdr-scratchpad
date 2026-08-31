@@ -550,6 +550,20 @@ impl App {
         self.flush();
     }
 
+    /// Retire la sélection après un dépôt partiel.
+    ///
+    /// La case de secours reçoit le texte **entier** d'avant le retrait, pas
+    /// la seule sélection : `undo` remplace le buffer, il ne réinsère pas. Le
+    /// contrat « ^Z undoes » est donc le même dans les deux cas — rendre le
+    /// scratchpad tel qu'il était juste avant l'envoi.
+    fn stash_and_delete_selection(&mut self) {
+        self.stash = Some(self.buf.text());
+        self.buf.delete_selection();
+        self.touch();
+        // Comme le vidage, c'est destructif : sur le disque tout de suite.
+        self.flush();
+    }
+
     fn undo(&mut self) {
         match self.stash.take() {
             Some(text) => {
@@ -570,13 +584,18 @@ impl App {
         }
     }
 
-    /// Dépose le texte chez l'agent visé, puis vide.
+    /// Dépose le texte chez l'agent visé, puis le retire du scratchpad.
     ///
-    /// L'ordre compte : on envoie **puis** on vide. Un échec laisse donc le
+    /// Une sélection restreint l'envoi, comme elle restreint la copie : on
+    /// dépose ce qui est surligné et on ne retire que lui, le reste du buffer
+    /// demeure. Sans sélection, c'est tout le texte, et le scratchpad se vide.
+    ///
+    /// L'ordre compte : on envoie **puis** on retire. Un échec laisse donc le
     /// texte exactement où il était — c'est ce qui rend l'erreur sans
     /// conséquence, et c'est ce qui remplace toute confirmation.
     fn send(&mut self) {
-        let text = self.buf.text();
+        let selected = self.buf.selected_text();
+        let text = selected.clone().unwrap_or_else(|| self.buf.text());
         if text.is_empty() {
             self.say("nothing to emit".into());
             return;
@@ -604,7 +623,11 @@ impl App {
             return;
         }
 
-        self.stash_and_clear(text);
+        if selected.is_some() {
+            self.stash_and_delete_selection();
+        } else {
+            self.stash_and_clear(text);
+        }
         self.say(format!("emitted → {} · ^Z undoes", target.agent));
 
         // Basculer chez l'agent est la fin du geste : déposer, relire,
@@ -1582,6 +1605,62 @@ mod tests {
         app.on_key(ctrl('e'));
         assert!(herdr.focused.borrow().is_empty());
         assert_eq!(text_of(&app), "précieux");
+    }
+
+    /// Une sélection restreint l'envoi comme elle restreint la copie : seul le
+    /// surlignage part, et seul lui quitte le scratchpad.
+    #[test]
+    fn a_selection_narrows_the_send_and_only_it_leaves_the_buffer() {
+        let herdr = std::rc::Rc::new(two_agents(None));
+        let mut app = wired_on("un deux", herdr.clone());
+        for _ in 0..4 {
+            app.on_key(shift_code(KeyCode::Left));
+        }
+        app.on_key(ctrl('e'));
+        assert_eq!(
+            herdr.sent.borrow().clone(),
+            vec![("w1:p1".to_owned(), "deux".to_owned())],
+            "seule la sélection est déposée"
+        );
+        assert_eq!(text_of(&app), "un ", "le reste du texte demeure");
+        assert_eq!(app.buf.selection(), None, "le surlignage est retiré avec son texte");
+    }
+
+    /// Le contrat « ^Z undoes » est le même qu'au dépôt complet : le
+    /// scratchpad redevient ce qu'il était juste avant l'envoi.
+    #[test]
+    fn undo_after_a_selection_send_restores_the_whole_buffer() {
+        let mut app = wired("un deux", None);
+        for _ in 0..4 {
+            app.on_key(shift_code(KeyCode::Left));
+        }
+        app.on_key(ctrl('e'));
+        app.on_key(ctrl('z'));
+        assert_eq!(text_of(&app), "un deux");
+    }
+
+    /// Le geste ne change pas parce que l'envoi est partiel : on bascule
+    /// toujours chez l'agent qui vient de recevoir.
+    #[test]
+    fn a_selection_send_focuses_the_agent_too() {
+        let herdr = std::rc::Rc::new(two_agents(None));
+        let mut app = wired_on("un deux", herdr.clone());
+        app.on_key(shift_code(KeyCode::Left));
+        app.on_key(ctrl('e'));
+        assert_eq!(herdr.focused.borrow().clone(), vec!["w1:p1".to_owned()]);
+    }
+
+    /// Un envoi refusé ne doit pas plus entamer la sélection que le texte.
+    #[test]
+    fn a_failed_selection_send_keeps_the_selection() {
+        let mut app = wired("un deux", Some("pane_not_found"));
+        for _ in 0..4 {
+            app.on_key(shift_code(KeyCode::Left));
+        }
+        app.on_key(ctrl('e'));
+        assert_eq!(text_of(&app), "un deux");
+        assert!(app.buf.selection().is_some(), "la sélection reste sous les yeux");
+        assert!(app.stash.is_none());
     }
 
     #[test]

@@ -117,7 +117,7 @@ Nothing to save, nothing to name, nothing to clean up afterwards.
 
 | Key | Button | Action |
 | --- | --- | --- |
-| `Ctrl+E` | `^E emit to agent` | drops the text into an agent, wipes, and switches to it |
+| `Ctrl+E` | `^E emit to agent` | drops the selection — or everything — into an agent, removes it, and switches to it |
 | `Ctrl+N` | `→ claude·p3` | next agent in the tab (from two on) |
 | `Ctrl+C` | `^C copy` | copies the selection — or everything — to your own machine's clipboard |
 | `Ctrl+L` | `^L clear` | wipes, no confirmation |
@@ -165,6 +165,10 @@ agent** — you land in front of your text, ready to reread and send. The wipe i
 a *move*, not a copy: `Ctrl+Z` catches it like any other wipe, once you come
 back with `prefix+a`. **If the emit fails, nothing is wiped and nothing
 switches**: that's what makes the error inconsequential.
+
+**With text selected, only the selection is emitted** — and only it leaves the
+scratchpad; the rest of your draft stays where it is. Same rule as `Ctrl+C`.
+`Ctrl+Z` still brings back the whole buffer as it was just before the emit.
 
 Targets are the agents of the **pane's own tab**, and only those — no fallback
 to the workspace, no last-used, no first-come. A destination you can't explain

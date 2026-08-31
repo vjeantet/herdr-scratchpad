@@ -31,7 +31,7 @@ Tout ce que `DESIGN.md` décrit est implémenté et vérifié sur des panes viva
 | vider, avec case de secours à une place | `Ctrl+L` | §7 |
 | exporter un instantané `/tmp/herdr-scratchpad-<tab_id>.txt` | `Ctrl+S` | §10 |
 | rattraper le dernier vidage **ou envoi** | `Ctrl+Z` | §7, §14.2 |
-| déposer chez un agent, vider, basculer dessus | `Ctrl+E` | §14 |
+| déposer chez un agent (la sélection, ou tout), retirer, basculer dessus | `Ctrl+E` | §14, §14.2 |
 | agent suivant (à partir de deux dans la tab) | `Ctrl+N` | §14.5 |
 | toggle du pane docké en bas | `prefix+a` | §3 |
 | fermer depuis le pane (désélectionne d'abord) | `Esc` | §4 |

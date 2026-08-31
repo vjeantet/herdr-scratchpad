@@ -84,7 +84,7 @@ pub struct BarItem {
 /// Corollaire assumé : le rognage partant toujours de la droite, ce sont la
 /// cible puis `^E` qui tombent d'abord sur une barre étroite. La cible est
 /// maintenant locale à la tab, et `Ctrl+E` reste au clavier.
-fn bar_labels(targets: Targets, bar_width: usize) -> Vec<(Action, String)> {
+fn bar_labels(targets: Targets, bar_width: usize, selecting: bool) -> Vec<(Action, String)> {
     let mut out = vec![
         (Action::Command(Command::Copy), "^C copy".to_owned()),
         (Action::Command(Command::Clear), "^L clear".to_owned()),
@@ -93,7 +93,16 @@ fn bar_labels(targets: Targets, bar_width: usize) -> Vec<(Action, String)> {
     // Sans agent dans la tab, il n'y a rien à quoi parler : le bouton
     // n'existe pas, plutôt que d'exister pour refuser.
     if targets.count >= 1 {
-        out.push((Action::Command(Command::Send), "^E emit to agent".to_owned()));
+        // Une sélection restreint le dépôt à elle-même : le bouton le dit,
+        // parce que c'est le seul moment où `^E` ne fait pas ce que la
+        // formulation par défaut promet — vider le scratchpad.
+        //
+        // Seul `^E` change de libellé, et il est le **premier des variables** :
+        // il ne pousse que la zone cible, jamais `^C`, `^L` ni `^Z`. Allonger
+        // `^C copy` de la même façon les décalerait tous les trois au relâché
+        // du glisser, c'est-à-dire pendant que le doigt descend vers eux.
+        let send = if selecting { "^E emit selection" } else { "^E emit to agent" };
+        out.push((Action::Command(Command::Send), send.to_owned()));
     }
     // Avec un seul agent, la zone n'apprendrait rien : elle ne dirait que ce
     // que `^E` fait déjà, et son cyclage n'aurait nulle part où aller.
@@ -239,8 +248,8 @@ pub fn position_to_cursor(
 /// cliquable invisible serait un piège. Comme la liste est ordonnée, ce sont
 /// les entrées de droite qui tombent d'abord — la zone cible en premier, puis
 /// `^E`, qui a déjà sa touche.
-pub fn layout_bar(bar: Rect, targets: Targets) -> Vec<BarItem> {
-    let labels = bar_labels(targets, bar.width as usize);
+pub fn layout_bar(bar: Rect, targets: Targets, selecting: bool) -> Vec<BarItem> {
+    let labels = bar_labels(targets, bar.width as usize, selecting);
     let mut out = Vec::with_capacity(labels.len());
     let mut x = bar.x;
     let right = bar.x.saturating_add(bar.width);
@@ -377,7 +386,7 @@ pub fn draw(
         );
         Vec::new()
     } else {
-        let items = layout_bar(bar, targets);
+        let items = layout_bar(bar, targets, selection.is_some());
         let mut spans = Vec::with_capacity(items.len() * 2);
         for (i, item) in items.iter().enumerate() {
             if i > 0 {
@@ -653,13 +662,13 @@ mod tests {
     /// La barre d'une tab à deux agents : tout est là.
     fn bar(width: u16) -> Vec<BarItem> {
         let t = target("claude", "w2:p1");
-        layout_bar(Rect { x: 0, y: 0, width, height: 1 }, view(&t, 2))
+        layout_bar(Rect { x: 0, y: 0, width, height: 1 }, view(&t, 2), false)
     }
 
     /// Les actions d'une barre large, pour un nombre d'agents donné.
     fn actions(target_count: usize) -> Vec<Action> {
         let t = target("claude", "w2:p1");
-        layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&t, target_count))
+        layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&t, target_count), false)
             .iter()
             .map(|i| i.action)
             .collect()
@@ -668,7 +677,7 @@ mod tests {
     /// Les rectangles des trois commandes fixes, pour un nombre d'agents donné.
     fn fixed_rects(target_count: usize) -> Vec<Rect> {
         let t = target("claude", "w2:p1");
-        layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&t, target_count))
+        layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&t, target_count), false)
             .iter()
             .filter(|i| {
                 matches!(
@@ -685,7 +694,7 @@ mod tests {
     #[test]
     fn buttons_are_laid_out_left_to_right_without_overlap() {
         let t = target("claude", "w2:p1");
-        let items = layout_bar(Rect { x: 0, y: 9, width: 120, height: 1 }, view(&t, 2));
+        let items = layout_bar(Rect { x: 0, y: 9, width: 120, height: 1 }, view(&t, 2), false);
         assert_eq!(items.len(), 5);
         for pair in items.windows(2) {
             assert!(
@@ -718,7 +727,7 @@ mod tests {
     #[test]
     fn buttons_respect_a_non_zero_origin() {
         let t = target("claude", "w2:p1");
-        let items = layout_bar(Rect { x: 5, y: 0, width: 120, height: 1 }, view(&t, 2));
+        let items = layout_bar(Rect { x: 5, y: 0, width: 120, height: 1 }, view(&t, 2), false);
         assert_eq!(items[0].rect.x, 5);
     }
 
@@ -810,7 +819,7 @@ mod tests {
     #[test]
     fn an_endless_agent_name_does_not_eat_the_bar() {
         let long = target(&"a".repeat(200), "w2:p1");
-        let items = layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&long, 2));
+        let items = layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&long, 2), false);
         assert_eq!(items.len(), 5);
     }
 
@@ -821,8 +830,43 @@ mod tests {
         let items = layout_bar(
             Rect { x: 0, y: 0, width: 120, height: 1 },
             Targets { current: None, count: 2 },
+            false,
         );
         assert_eq!(items.len(), 4);
         assert!(!items.iter().any(|i| i.action == Action::CycleTarget));
+    }
+
+    /// `^E` ne vide plus tout quand il y a une sélection : le bouton doit le
+    /// dire, c'est le seul endroit où la nuance est visible avant l'appui.
+    #[test]
+    fn a_selection_renames_the_emit_button() {
+        let t = target("claude", "w2:p1");
+        let items = layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&t, 2), true);
+        let send = items
+            .iter()
+            .find(|i| i.action == Action::Command(Command::Send))
+            .expect("le bouton d'envoi doit être là");
+        assert_eq!(send.label, "^E emit selection");
+        assert_eq!(
+            send.rect.width as usize,
+            columns(&send.label),
+            "le rectangle cliquable suit le libellé le plus long"
+        );
+    }
+
+    /// Le libellé variable ne doit pousser que ce qui est à sa droite : les
+    /// trois commandes fixes ne bougent pas d'une colonne quand on sélectionne.
+    #[test]
+    fn a_selection_does_not_move_the_fixed_commands() {
+        let t = target("claude", "w2:p1");
+        let rects = |selecting| {
+            layout_bar(Rect { x: 0, y: 0, width: 120, height: 1 }, view(&t, 2), selecting)
+                .iter()
+                .filter(|i| i.action != Action::Command(Command::Send))
+                .filter(|i| i.action != Action::CycleTarget)
+                .map(|i| i.rect)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(rects(true), rects(false));
     }
 }
