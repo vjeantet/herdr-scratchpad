@@ -151,6 +151,26 @@ pub fn wrap(lines: &[String], width: usize) -> Vec<VisualRow> {
     out
 }
 
+/// Portion d'une ligne visuelle couverte par la sélection, en index de
+/// caractères dans la ligne logique — le repère commun de `VisualRow` et des
+/// bornes rendues par le buffer.
+///
+/// `None` quand la sélection ne touche pas ce morceau, y compris pour une
+/// ligne vide au milieu d'une sélection multi-lignes : il n'y a alors aucun
+/// caractère à surligner.
+pub fn selection_in_row(
+    visual: VisualRow,
+    selection: ((usize, usize), (usize, usize)),
+) -> Option<(usize, usize)> {
+    let ((start_row, start_col), (end_row, end_col)) = selection;
+    if visual.row < start_row || visual.row > end_row {
+        return None;
+    }
+    let from = if visual.row == start_row { start_col } else { 0 }.max(visual.start);
+    let to = if visual.row == end_row { end_col } else { usize::MAX }.min(visual.end);
+    (from < to).then_some((from, to))
+}
+
 /// Index de la ligne visuelle qui porte le curseur.
 pub fn cursor_visual_row(rows: &[VisualRow], cursor: (usize, usize)) -> usize {
     let (row, col) = cursor;
@@ -241,6 +261,20 @@ pub fn layout_bar(bar: Rect, targets: Targets) -> Vec<BarItem> {
     out
 }
 
+/// Ce que le rendu doit savoir du buffer : le texte, le curseur, et la
+/// sélection éventuelle.
+///
+/// Les trois voyagent ensemble parce qu'ils décrivent le même état au même
+/// instant — un curseur rendu sur d'autres lignes que les siennes serait un
+/// bug de couture, pas d'affichage.
+pub struct Content<'a> {
+    pub lines: &'a [String],
+    /// (ligne, colonne-caractère).
+    pub cursor: (usize, usize),
+    /// Bornes normalisées (début <= fin), même repère que le curseur.
+    pub selection: Option<((usize, usize), (usize, usize))>,
+}
+
 /// Ce que le rendu renvoie à l'application pour le prochain événement souris.
 pub struct Geometry {
     /// Zone de texte.
@@ -257,13 +291,13 @@ pub struct Geometry {
 /// réellement disponible, et l'appelant récupère la valeur corrigée.
 pub fn draw(
     frame: &mut Frame,
-    lines: &[String],
-    cursor: (usize, usize),
+    content: Content,
     scroll: &mut usize,
     status: Option<&str>,
     show_hint: bool,
     targets: Targets,
 ) -> Geometry {
+    let Content { lines, cursor, selection } = content;
     let area = frame.area();
 
     // La barre occupe exactement une ligne — le coût fixe assumé du design.
@@ -292,12 +326,35 @@ pub fn draw(
 
     let mut text: Vec<Line> = Vec::with_capacity(height);
     for visual in rows.iter().skip(*scroll).take(height) {
-        let slice: String = lines[visual.row]
+        let chars = lines[visual.row]
             .chars()
             .skip(visual.start)
-            .take(visual.end - visual.start)
-            .collect();
-        text.push(Line::raw(slice));
+            .take(visual.end - visual.start);
+        // Le morceau sélectionné est rendu en vidéo inverse, découpé en trois
+        // spans au plus — le patron de la barre, juste en dessous.
+        let line = match selection.and_then(|s| selection_in_row(*visual, s)) {
+            Some((from, to)) => {
+                let (mut before, mut inside, mut after) =
+                    (String::new(), String::new(), String::new());
+                for (i, c) in chars.enumerate() {
+                    let col = visual.start + i;
+                    if col < from {
+                        before.push(c);
+                    } else if col < to {
+                        inside.push(c);
+                    } else {
+                        after.push(c);
+                    }
+                }
+                Line::from(vec![
+                    Span::raw(before),
+                    Span::styled(inside, Style::default().add_modifier(Modifier::REVERSED)),
+                    Span::raw(after),
+                ])
+            }
+            None => Line::raw(chars.collect::<String>()),
+        };
+        text.push(line);
     }
 
     if show_hint && text.first().is_some_and(|l| l.width() == 0) {
@@ -518,6 +575,52 @@ mod tests {
     fn zero_width_is_treated_as_one() {
         let rows = wrap(&lines("ab"), 0);
         assert_eq!(rows.len(), 2);
+    }
+
+    // -- sélection ---------------------------------------------------------
+
+    #[test]
+    fn selection_inside_a_single_row_keeps_its_bounds() {
+        let visual = VisualRow { row: 0, start: 0, end: 5 };
+        assert_eq!(selection_in_row(visual, ((0, 1), (0, 3))), Some((1, 3)));
+    }
+
+    #[test]
+    fn selection_straddling_the_wrap_covers_both_chunks() {
+        let sel = ((0, 1), (0, 3));
+        assert_eq!(
+            selection_in_row(VisualRow { row: 0, start: 0, end: 2 }, sel),
+            Some((1, 2)),
+            "le premier morceau porte le début de la sélection"
+        );
+        assert_eq!(
+            selection_in_row(VisualRow { row: 0, start: 2, end: 4 }, sel),
+            Some((2, 3)),
+            "le second morceau porte la fin"
+        );
+    }
+
+    #[test]
+    fn a_middle_line_is_fully_covered() {
+        let visual = VisualRow { row: 1, start: 0, end: 4 };
+        assert_eq!(
+            selection_in_row(visual, ((0, 2), (2, 1))),
+            Some((0, 4)),
+            "une ligne traversée de part en part est surlignée entière"
+        );
+    }
+
+    #[test]
+    fn an_empty_line_inside_the_selection_has_nothing_to_highlight() {
+        let visual = VisualRow { row: 1, start: 0, end: 0 };
+        assert_eq!(selection_in_row(visual, ((0, 0), (2, 1))), None);
+    }
+
+    #[test]
+    fn a_row_outside_the_selection_is_untouched() {
+        let sel = ((1, 0), (1, 2));
+        assert_eq!(selection_in_row(VisualRow { row: 0, start: 0, end: 4 }, sel), None);
+        assert_eq!(selection_in_row(VisualRow { row: 2, start: 0, end: 4 }, sel), None);
     }
 
     #[test]

@@ -23,6 +23,7 @@ Tout ce que `DESIGN.md` décrit est implémenté et vérifié sur des panes viva
 | --- | --- | --- |
 | coller / éditer / recharger depuis le fichier | — | §1, §8, §9, §11 |
 | poser le curseur au clic | clic | §Souris |
+| sélectionner du texte | `Shift`+mouvements, glisser | §4, §Souris |
 | sauter / effacer un mot | `Ctrl`/`Alt`+flèches, `Ctrl`/`Alt`+`Backspace` | §4 |
 | aller au début / à la fin du texte | `Ctrl+Home`, `Ctrl+End` | §4 |
 | un buffer par tab, ménage des orphelins | — | §8, §9 |
@@ -33,7 +34,7 @@ Tout ce que `DESIGN.md` décrit est implémenté et vérifié sur des panes viva
 | déposer chez un agent, vider, basculer dessus | `Ctrl+E` | §14 |
 | agent suivant (à partir de deux dans la tab) | `Ctrl+N` | §14.5 |
 | toggle du pane docké en bas | `prefix+a` | §3 |
-| fermer depuis le pane | `Esc` | §4 |
+| fermer depuis le pane (désélectionne d'abord) | `Esc` | §4 |
 
 `docs/plan-envoi-agent.md` (§14) et `docs/plan-buffer-par-tab.md` (§8, §9, §14.4)
 sont les plans qui ont produit ces sections. Ils sont **exécutés** : ce sont des

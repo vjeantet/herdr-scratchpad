@@ -82,6 +82,11 @@ pub struct App {
     buttons: Vec<(Action, Rect)>,
     body: Rect,
     total_rows: usize,
+    /// Un glisser-sélectionner est en cours : le bouton gauche est descendu
+    /// **dans le texte** et n'est pas encore remonté. Sans ce drapeau, un
+    /// glisser parti d'un bouton de la barre sélectionnerait en traversant le
+    /// texte.
+    dragging: bool,
     /// `Esc` a été pressée : la boucle d'événements doit rendre la main.
     ///
     /// La fermeture n'est pas demandée à herdr — le pane est lancé en `exec`,
@@ -137,6 +142,7 @@ impl App {
             buttons: Vec::new(),
             body: Rect::default(),
             total_rows: 0,
+            dragging: false,
             quit: false,
             dirty: false,
             last_edit: Instant::now(),
@@ -175,6 +181,7 @@ impl App {
             buttons: Vec::new(),
             body: Rect::default(),
             total_rows: 0,
+            dragging: false,
             quit: false,
             dirty: false,
             last_edit: Instant::now(),
@@ -208,8 +215,11 @@ impl App {
 
         let geom = ui::draw(
             frame,
-            self.buf.lines(),
-            self.buf.cursor(),
+            ui::Content {
+                lines: self.buf.lines(),
+                cursor: self.buf.cursor(),
+                selection: self.buf.selection(),
+            },
             &mut self.scroll,
             status,
             self.buf.is_empty(),
@@ -234,6 +244,10 @@ impl App {
         let altgr = key.modifiers.contains(KeyModifiers::CONTROL)
             && key.modifiers.contains(KeyModifiers::ALT);
 
+        // Seuls les mouvements du curseur regardent `Shift` (cf.
+        // [`App::track_selection`]) : sur une lettre, il fait sa majuscule.
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+
         if key.modifiers.contains(KeyModifiers::CONTROL) && !altgr {
             match key.code {
                 KeyCode::Char('e') | KeyCode::Char('E') => self.run(Command::Send),
@@ -245,10 +259,22 @@ impl App {
                 // Les sauts de mot ne portent pas de lettre : ils ne disputent
                 // rien aux commandes, contrairement au readline écarté par le
                 // design (`Ctrl+A/E/K/W/U`).
-                KeyCode::Left => self.buf.word_left(),
-                KeyCode::Right => self.buf.word_right(),
-                KeyCode::Home => self.buf.cursor_to_start(),
-                KeyCode::End => self.buf.cursor_to_end(),
+                KeyCode::Left => {
+                    self.track_selection(shift);
+                    self.buf.word_left();
+                }
+                KeyCode::Right => {
+                    self.track_selection(shift);
+                    self.buf.word_right();
+                }
+                KeyCode::Home => {
+                    self.track_selection(shift);
+                    self.buf.cursor_to_start();
+                }
+                KeyCode::End => {
+                    self.track_selection(shift);
+                    self.buf.cursor_to_end();
+                }
                 // `Ctrl+Backspace` arrive selon le terminal soit tel quel,
                 // soit en `^H` — c'est-à-dire `Ctrl+H` (crossterm
                 // `event/sys/unix/parse.rs:106`). Les deux formes valent la
@@ -288,11 +314,17 @@ impl App {
         // `{` ou `|` sur un clavier français.
         if key.modifiers.contains(KeyModifiers::ALT) && !altgr {
             match key.code {
+                // `Shift+Option`+flèche n'est détournée par aucun raccourci
+                // Ghostty : elle arrive ici en flèche + ALT|SHIFT, et étend
+                // donc la sélection d'un mot. `Alt+b`/`f`, traduites en amont,
+                // ne portent jamais `Shift`.
                 KeyCode::Left | KeyCode::Char('b') => {
+                    self.track_selection(shift);
                     self.buf.word_left();
                     return;
                 }
                 KeyCode::Right | KeyCode::Char('f') => {
+                    self.track_selection(shift);
                     self.buf.word_right();
                     return;
                 }
@@ -328,20 +360,61 @@ impl App {
                 self.buf.delete();
                 self.touch();
             }
-            KeyCode::Left => self.buf.left(),
-            KeyCode::Right => self.buf.right(),
-            KeyCode::Up => self.buf.up(1),
-            KeyCode::Down => self.buf.down(1),
-            KeyCode::Home => self.buf.home(),
-            KeyCode::End => self.buf.end(),
-            KeyCode::PageUp => self.buf.up(page),
-            KeyCode::PageDown => self.buf.down(page),
-            // La convention des plugins herdr (`Esc` recule d'un cran, et
-            // ferme quand il n'y a plus rien à annuler). Ici la pile est vide
-            // à tous les étages — pas de mode, pas de sélection, pas de
-            // recherche — donc `Esc` ferme directement.
-            KeyCode::Esc => self.quit = true,
+            KeyCode::Left => {
+                self.track_selection(shift);
+                self.buf.left();
+            }
+            KeyCode::Right => {
+                self.track_selection(shift);
+                self.buf.right();
+            }
+            KeyCode::Up => {
+                self.track_selection(shift);
+                self.buf.up(1);
+            }
+            KeyCode::Down => {
+                self.track_selection(shift);
+                self.buf.down(1);
+            }
+            KeyCode::Home => {
+                self.track_selection(shift);
+                self.buf.home();
+            }
+            KeyCode::End => {
+                self.track_selection(shift);
+                self.buf.end();
+            }
+            KeyCode::PageUp => {
+                self.track_selection(shift);
+                self.buf.up(page);
+            }
+            KeyCode::PageDown => {
+                self.track_selection(shift);
+                self.buf.down(page);
+            }
+            // La convention des plugins herdr : `Esc` recule d'un cran, et
+            // ferme quand il n'y a plus rien à annuler. La pile n'a qu'un
+            // étage — la sélection — donc `Esc` la défait s'il y en a une,
+            // et ferme sinon.
+            KeyCode::Esc => {
+                if self.buf.selection().is_some() {
+                    self.buf.clear_selection();
+                } else {
+                    self.quit = true;
+                }
+            }
             _ => {}
+        }
+    }
+
+    /// Prépare la sélection autour d'un mouvement du curseur : `Shift`
+    /// l'étend (l'ancre reste où elle est, ou naît sous le curseur), son
+    /// absence la défait — le comportement de n'importe quel éditeur.
+    fn track_selection(&mut self, shift: bool) {
+        if shift {
+            self.buf.begin_selection();
+        } else {
+            self.buf.clear_selection();
         }
     }
 
@@ -363,6 +436,7 @@ impl App {
             // Les boutons agissent à la pression : ils ne peuvent pas démarrer
             // de glisser, donc rien ne justifie d'attendre le relâchement.
             MouseEventKind::Down(MouseButton::Left) => {
+                self.dragging = false;
                 let hit = self
                     .buttons
                     .iter()
@@ -381,11 +455,27 @@ impl App {
                             pos,
                         );
                         if let Some((row, col)) = at {
+                            self.buf.clear_selection();
                             self.buf.set_cursor(row, col);
+                            self.dragging = true;
                         }
                     }
                 }
             }
+            // Le glisser étend la sélection depuis le point de la pression :
+            // l'ancre naît au premier mouvement, puis le curseur suit. Hors du
+            // texte, l'événement est ignoré — la sélection attend que le
+            // pointeur revienne.
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if self.dragging
+                    && let Some((row, col)) =
+                        ui::position_to_cursor(self.buf.lines(), self.body, self.scroll, pos)
+                {
+                    self.buf.begin_selection();
+                    self.buf.set_cursor(row, col);
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => self.dragging = false,
             MouseEventKind::ScrollUp => self.scroll = self.scroll.saturating_sub(WHEEL_STEP),
             MouseEventKind::ScrollDown => {
                 let max = self
@@ -417,8 +507,12 @@ impl App {
         }
     }
 
+    /// Copie la sélection quand il y en a une, tout le buffer sinon.
     fn copy(&mut self) {
-        let text = self.buf.text();
+        let text = self
+            .buf
+            .selected_text()
+            .unwrap_or_else(|| self.buf.text());
         match clipboard::copy(&text) {
             Ok(len) => self.say(format!("copied · {}", human(len))),
             Err(CopyError::Empty) => self.say("nothing to copy".into()),
@@ -735,6 +829,11 @@ mod tests {
     /// `Alt+b` / `Alt+f` avant de l'envoyer.
     fn alt_code(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::ALT)
+    }
+
+    /// `Shift` sur une touche de mouvement : la forme qui étend la sélection.
+    fn shift_code(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::SHIFT)
     }
 
     fn text_of(app: &App) -> String {
@@ -1173,6 +1272,161 @@ mod tests {
             });
         }
         assert_eq!(app.scroll, 0);
+    }
+
+    // -- sélection ---------------------------------------------------------
+
+    #[test]
+    fn shift_arrow_extends_a_selection_and_typing_replaces_it() {
+        let mut app = App::headless("un deux");
+        app.on_key(shift_code(KeyCode::Left));
+        app.on_key(shift_code(KeyCode::Left));
+        app.on_key(key(KeyCode::Char('X')));
+        assert_eq!(text_of(&app), "un deX", "la frappe remplace les deux caractères surlignés");
+    }
+
+    #[test]
+    fn shift_ctrl_arrow_extends_the_selection_by_a_word() {
+        let mut app = App::headless("un deux");
+        app.on_key(KeyEvent::new(
+            KeyCode::Left,
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        ));
+        app.on_key(key(KeyCode::Char('X')));
+        assert_eq!(text_of(&app), "un X");
+    }
+
+    /// `Shift+Option`+flèche n'est détournée par aucun raccourci Ghostty :
+    /// elle arrive telle quelle, flèche + ALT|SHIFT.
+    #[test]
+    fn shift_alt_arrow_extends_the_selection_by_a_word() {
+        let mut app = App::headless("un deux");
+        app.on_key(KeyEvent::new(
+            KeyCode::Left,
+            KeyModifiers::ALT | KeyModifiers::SHIFT,
+        ));
+        app.on_key(key(KeyCode::Char('X')));
+        assert_eq!(text_of(&app), "un X");
+    }
+
+    #[test]
+    fn a_plain_arrow_clears_the_selection() {
+        let mut app = App::headless("un deux");
+        app.on_key(shift_code(KeyCode::Left));
+        app.on_key(key(KeyCode::Left));
+        app.on_key(key(KeyCode::Backspace));
+        assert_eq!(
+            text_of(&app),
+            "un dux",
+            "après un mouvement sans Shift, Backspace redevient un effacement d'un caractère"
+        );
+    }
+
+    #[test]
+    fn a_capital_letter_is_a_keystroke_not_a_selection() {
+        let mut app = App::headless("");
+        app.on_key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT));
+        assert_eq!(text_of(&app), "A", "Shift sur une lettre fait sa majuscule, rien d'autre");
+    }
+
+    #[test]
+    fn esc_clears_the_selection_before_closing() {
+        let mut app = App::headless("un deux");
+        app.on_key(shift_code(KeyCode::Left));
+        app.on_key(key(KeyCode::Esc));
+        assert!(
+            !app.quit_requested(),
+            "le premier Esc dépile la sélection, il ne ferme pas"
+        );
+        assert_eq!(app.buf.selection(), None);
+        app.on_key(key(KeyCode::Esc));
+        assert!(app.quit_requested(), "plus rien à dépiler : le second Esc ferme");
+    }
+
+    #[test]
+    fn dragging_selects_and_typing_replaces_it() {
+        let mut app = App::headless("un deux");
+        app.body = Rect { x: 0, y: 0, width: 10, height: 3 };
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 3,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 7,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.on_key(key(KeyCode::Char('X')));
+        assert_eq!(text_of(&app), "un X", "le glisser a sélectionné « deux »");
+    }
+
+    #[test]
+    fn a_click_without_a_drag_selects_nothing() {
+        let mut app = App::headless("un deux");
+        app.body = Rect { x: 0, y: 0, width: 10, height: 3 };
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 3,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 3,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.buf.selection(), None, "poser le curseur n'est pas sélectionner");
+    }
+
+    #[test]
+    fn a_drag_started_on_a_button_selects_nothing() {
+        let mut app = App::headless("un deux");
+        app.body = Rect { x: 0, y: 0, width: 10, height: 3 };
+        app.buttons = vec![(Action::CycleTarget, Rect { x: 0, y: 3, width: 8, height: 1 })];
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 1,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 5,
+            row: 1,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(
+            app.buf.selection(),
+            None,
+            "un glisser né sur la barre ne doit pas sélectionner en traversant le texte"
+        );
+    }
+
+    #[test]
+    fn shift_drag_is_left_to_the_terminal() {
+        let mut app = App::headless("un deux");
+        app.body = Rect { x: 0, y: 0, width: 10, height: 3 };
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 3,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.on_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 7,
+            row: 0,
+            modifiers: KeyModifiers::SHIFT,
+        });
+        assert_eq!(
+            app.buf.selection(),
+            None,
+            "Shift+souris appartient au terminal, glisser compris"
+        );
     }
 
     /// `Esc` est la **seule** sortie : aucune lettre ne ferme le pane, pas même

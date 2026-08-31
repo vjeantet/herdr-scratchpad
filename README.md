@@ -119,14 +119,15 @@ Nothing to save, nothing to name, nothing to clean up afterwards.
 | --- | --- | --- |
 | `Ctrl+E` | `^E emit to agent` | drops the text into an agent, wipes, and switches to it |
 | `Ctrl+N` | `→ claude·p3` | next agent in the tab (from two on) |
-| `Ctrl+C` | `^C copy` | copies everything to your own machine's clipboard |
+| `Ctrl+C` | `^C copy` | copies the selection — or everything — to your own machine's clipboard |
 | `Ctrl+L` | `^L clear` | wipes, no confirmation |
 | `Ctrl+S` | — | writes `/tmp/herdr-scratchpad-$HERDR_TAB_ID.txt` |
 | `Ctrl+Z` | `^Z undo` | brings back the last wiped or emitted content |
+| `Shift`+any cursor move, mouse drag | — | select text (typing replaces it, `Backspace` deletes it) |
 | `Ctrl`+arrows, `Alt`+arrows, `Alt+b` / `Alt+f` | — | jump a word (use `Option` on macOS, where `Ctrl`+arrows belongs to Mission Control) |
 | `Alt+Backspace`, `Ctrl+Backspace` | — | delete the word to the left |
 | `Ctrl+Home` / `Ctrl+End` | — | start / end of the text |
-| `Esc` | — | closes the pane |
+| `Esc` | — | drops the selection if there is one, closes the pane otherwise |
 
 These are the combinations your fingers already know, each with its usual
 meaning. The buttons in the bottom bar do the same thing on click or touch —
@@ -140,11 +141,10 @@ rather than freezing the terminal, and `Ctrl+Z`, which undoes rather than
 suspending.
 
 **`Esc` closes the pane**, following the convention of herdr's TUI plugins:
-Esc backs out one step, and closing is the last step. Here there is no mode, no
-selection and no search to back out of first, so it goes straight to it.
-Nothing is lost — the text is saved on the way out and kept per tab, so
-`prefix+a` brings it back exactly as you left it. That's also why it asks for
-no confirmation.
+Esc backs out one step, and closing is the last step. The only step above it is
+a selection — Esc drops it first, and closes on the next press. Nothing is
+lost — the text is saved on the way out and kept per tab, so `prefix+a` brings
+it back exactly as you left it. That's also why it asks for no confirmation.
 
 `prefix+a` closes it too, mirroring the gesture that opened it — and it's what
 reopens the pane from the agent `Ctrl+E` just dropped you on. There is still no
@@ -221,11 +221,15 @@ herdr caps clipboard writes at **192 KB** (`MAX_CLIPBOARD_BYTES`). Past that,
 `Ctrl+C` refuses explicitly and points you at `Ctrl+S` — rather than letting
 you paste emptiness somewhere else.
 
-A **click places the cursor**; the wheel scrolls. There's no mouse selection
-inside the pane, and none is needed: `Ctrl+C` copies **everything**.
+A **click places the cursor**; a **drag selects**; the wheel scrolls. With a
+selection, `Ctrl+C` copies just that — without one it copies **everything**,
+so the no-thinking path stays what it was. Selecting also works from the
+keyboard: `Shift` on any cursor move, word jumps included.
 
-`Shift`+drag selects normally, like in any pane: herdr reserves `Shift`+mouse
-for the terminal, and the plugin doesn't touch it.
+`Shift`+drag still selects natively, like in any pane: herdr reserves
+`Shift`+mouse for the terminal, and the plugin doesn't touch it. That
+selection belongs to your terminal emulator; the one above belongs to the
+scratchpad — typing replaces it, `Backspace` deletes it, `Esc` drops it.
 
 ## Export
 

@@ -80,11 +80,12 @@ terminal n'en fasse des signaux : ils arrivent au pane comme des touches.
 | --- | --- |
 | `Ctrl+E` | envoyer à un agent (§14) |
 | `Ctrl+N` | agent suivant (§14) |
-| `Ctrl+C` | copier tout |
+| `Ctrl+C` | copier la sélection, sinon tout |
 | `Ctrl+L` | vider |
 | `Ctrl+S` | exporter dans un fichier |
 | `Ctrl+Z` | rattraper le dernier vidage |
-| `Esc` | fermer le pane |
+| `Shift`+mouvements | sélectionner |
+| `Esc` | désélectionner, sinon fermer le pane |
 
 Les quatre dernières `Ctrl` sont les combinaisons que tout le monde connaît
 déjà, chacune à sa signification habituelle : copier, effacer l'écran,
@@ -119,6 +120,11 @@ qu'à le fermer par erreur.
 > recherche. Sa pile est vide à tous les étages, donc `Esc` tombe droit sur le
 > dernier. C'est ce qui la rend implémentable en une ligne — et ce qui aurait
 > pu la rendre dangereuse.
+>
+> *(Mise à jour du 2026-08-31 : la sélection existe désormais, et la pile a
+> donc un cran. `Esc` la défait d'abord, et ne ferme que quand il n'y a plus
+> rien à annuler — exactement la convention décrite ci-dessus, appliquée au
+> lieu d'être contournée.)*
 >
 > La seconde chose manquée est que **fermer ne perd rien ici**. Le grief contre
 > `Ctrl+Q` n'était pas la fermeture, c'était la perte. Or le texte est persisté
@@ -181,6 +187,23 @@ sauts de mot : `Ctrl`+flèches et `Ctrl+Backspace`, et les deux bouts du texte :
 > (une combinaison `Alt` encodée en DEC 1036 arrivant comme `Esc`, donc comme
 > une fermeture) ne s'est jamais manifesté ici.
 
+> **Ajout du 2026-08-31 : la sélection.** `Shift` sur n'importe quel mouvement
+> du curseur — flèches, `Home`/`End`, `PgUp`/`PgDn`, et les sauts de mot
+> `Ctrl`/`Alt`+flèches — étend une sélection depuis une ancre posée au premier
+> geste. La frappe, le collage, `Backspace` et `Suppr` la remplacent ou la
+> suppriment ; `Ctrl+C` la copie quand elle existe (§5) ; tout mouvement sans
+> `Shift`, un clic, ou `Esc` la défont. `Shift` sur une lettre reste une
+> majuscule : seuls les mouvements le regardent.
+>
+> Ce n'est pas une entorse à la minimalité : aucune lettre dépensée, aucun
+> mode — la sélection est le seul cran que `Esc` ait jamais eu à dépiler.
+> `Shift+Option`+flèche arrive telle quelle (flèche + `ALT|SHIFT`), aucun
+> raccourci Ghostty ne la détourne — contrairement à `Option`+flèche nue,
+> cf. l'ajout du 2026-08-29.
+>
+> Pas de `Ctrl+A` « tout sélectionner » : la lettre est réservée par le refus
+> du readline ci-dessous, et `Ctrl+C` sans sélection copie déjà tout.
+
 **Pas de readline/emacs** (`Ctrl+A`, `Ctrl+E`, `Ctrl+K`, `Ctrl+W`, `Ctrl+U`) :
 ces lettres sont plus utiles aux commandes quotidiennes qu'à un confort
 d'édition fine qu'on utilise une fois par mois. Le pari s'est vérifié : `Ctrl+E`
@@ -211,12 +234,24 @@ partie la plus chère du projet, pour un outil dont la copie est par définition
 « **tout** copier » — et la correction ci-dessus lui retire son dernier
 argument.
 
-**Le clic simple, lui, pose le curseur** (ajout du 2026-08-25). Ce n'est pas le
-glisser-sélectionner écarté juste au-dessus : il n'y a ni sélection, ni état à
-tenir entre deux événements, seulement l'inverse du placement déjà fait au
-rendu — `ui::position_to_cursor` repasse par `wrap` avec les mêmes lignes et la
-même largeur, et compte en colonnes d'affichage comme lui. Un clic sur la barre
-du bas reste un clic de bouton : la barre prime sur le texte qu'elle recouvre.
+> **Renversé le 2026-08-31.** Les deux prémisses du rejet sont tombées l'une
+> après l'autre. Le clic du 2026-08-25 a payé la partie chère —
+> `ui::position_to_cursor`, l'inverse exact du rendu — et un glisser n'est
+> plus que ce même calcul répété, plus une ancre. Et la copie n'est plus
+> « tout » par définition depuis que la sélection clavier existe (§4) : un
+> glisser qui sélectionne est la même fonction sous un autre doigt.
+>
+> Le glisser **sans modificateur** sélectionne donc : l'ancre naît au premier
+> événement de glisser, le curseur suit le pointeur. Un glisser né sur la
+> barre ne sélectionne rien — les boutons agissent à la pression, le geste
+> est déjà consommé. `Shift`+glisser reste intouché : c'est toujours la
+> sélection native du terminal, et les deux coexistent sans se disputer.
+
+**Le clic simple, lui, pose le curseur** (ajout du 2026-08-25) — et défait la
+sélection en place, comme partout. `ui::position_to_cursor` repasse par `wrap`
+avec les mêmes lignes et la même largeur, et compte en colonnes d'affichage
+comme lui. Un clic sur la barre du bas reste un clic de bouton : la barre
+prime sur le texte qu'elle recouvre.
 
 Barre du bas cliquable, une seule ligne :
 
@@ -238,6 +273,10 @@ fonction restent entières, et l'aide du buffer vide continue de l'enseigner.
 **OSC 52**, vers le presse-papier du terminal hôte — c'est-à-dire de la machine
 où l'on va coller, pas du Pi. Sur une machine headless en SSH, c'est le seul
 mécanisme possible, et il est meilleur que `xclip` ne l'aurait été.
+
+Depuis le 2026-08-31, `Ctrl+C` copie la **sélection** quand il y en a une (§4),
+et tout le buffer sinon — le geste d'origine reste donc le chemin sans
+réfléchir : pas de sélection, tout part.
 
 Vérifié dans les sources de herdr :
 

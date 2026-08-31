@@ -2,7 +2,8 @@
 //!
 //! Édition **minimale** et assumée comme telle : flèches, `Backspace`,
 //! `Suppr`, `Home`/`End`, `PgUp`/`PgDn`, `Entrée`, plus les sauts de mot
-//! (`Ctrl`+flèches, `Ctrl+Backspace`). Pas de readline (`Ctrl+A/E/K/W/U`) —
+//! (`Ctrl`+flèches, `Ctrl+Backspace`), et une sélection à une ancre que toute
+//! mutation consomme. Pas de readline (`Ctrl+A/E/K/W/U`) —
 //! ces combinaisons servent aux commandes, qui sont utilisées tous les jours
 //! là où l'édition fine l'est une fois par mois ; les sauts de mot, eux, sont
 //! portés par des touches qui ne se disputent aucune lettre.
@@ -28,6 +29,13 @@ pub struct Buffer {
     /// Colonne du curseur, en **caractères** (pas en octets), toujours <= la
     /// longueur de la ligne courante.
     col: usize,
+    /// Ancre de sélection, dans le même repère que le curseur. La sélection
+    /// est l'intervalle ancre↔curseur ; une ancre égale au curseur vaut
+    /// « pas de sélection ».
+    ///
+    /// Toute mutation du texte la consomme ou l'efface : une ancre vivante
+    /// désigne donc toujours une position valide.
+    anchor: Option<(usize, usize)>,
 }
 
 impl Default for Buffer {
@@ -36,6 +44,7 @@ impl Default for Buffer {
             lines: vec![String::new()],
             row: 0,
             col: 0,
+            anchor: None,
         }
     }
 }
@@ -50,6 +59,7 @@ impl Buffer {
             lines: split_lines(text),
             row: 0,
             col: 0,
+            anchor: None,
         };
         buf.cursor_to_end();
         buf
@@ -58,8 +68,12 @@ impl Buffer {
     /// Remplace le contenu en préservant la position du curseur autant que
     /// possible — utilisé au rechargement quand un agent a écrit le fichier
     /// sous nos pieds.
+    ///
+    /// La sélection, elle, ne survit pas : le texte sous elle vient de
+    /// changer, la garder surlignerait autre chose que ce qui a été choisi.
     pub fn replace_preserving_cursor(&mut self, text: &str) {
         self.lines = split_lines(text);
+        self.anchor = None;
         self.clamp_cursor();
     }
 
@@ -92,6 +106,81 @@ impl Buffer {
         self.clamp_cursor();
     }
 
+    // -- sélection --------------------------------------------------------
+
+    /// Pose l'ancre au curseur, si aucune n'est déjà posée.
+    ///
+    /// Idempotente : c'est ce qui permet à l'appelant de la rappeler à chaque
+    /// `Shift`+mouvement ou à chaque événement de glisser sans réfléchir.
+    pub fn begin_selection(&mut self) {
+        if self.anchor.is_none() {
+            self.anchor = Some((self.row, self.col));
+        }
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.anchor = None;
+    }
+
+    /// Bornes de la sélection, normalisées (début <= fin), en
+    /// (ligne, colonne-caractère). `None` quand rien n'est sélectionné.
+    pub fn selection(&self) -> Option<((usize, usize), (usize, usize))> {
+        let anchor = self.anchor?;
+        let cursor = (self.row, self.col);
+        if anchor < cursor {
+            Some((anchor, cursor))
+        } else if cursor < anchor {
+            Some((cursor, anchor))
+        } else {
+            None
+        }
+    }
+
+    /// Le texte sélectionné, `None` quand rien n'est sélectionné.
+    pub fn selected_text(&self) -> Option<String> {
+        let ((sr, sc), (er, ec)) = self.selection()?;
+        if sr == er {
+            let start = self.byte_offset(sr, sc);
+            let end = self.byte_offset(sr, ec);
+            return Some(self.lines[sr][start..end].to_owned());
+        }
+        let mut out = self.lines[sr][self.byte_offset(sr, sc)..].to_owned();
+        for line in &self.lines[sr + 1..er] {
+            out.push('\n');
+            out.push_str(line);
+        }
+        out.push('\n');
+        out.push_str(&self.lines[er][..self.byte_offset(er, ec)]);
+        Some(out)
+    }
+
+    /// Supprime la sélection et pose le curseur à son début. Rend `true` si
+    /// quelque chose a été supprimé ; l'ancre est effacée dans tous les cas.
+    ///
+    /// C'est le préambule de toute mutation : taper, coller ou effacer sur une
+    /// sélection commence par la faire disparaître.
+    pub fn delete_selection(&mut self) -> bool {
+        let Some(((sr, sc), (er, ec))) = self.selection() else {
+            self.anchor = None;
+            return false;
+        };
+        if sr == er {
+            let start = self.byte_offset(sr, sc);
+            let end = self.byte_offset(sr, ec);
+            self.lines[sr].replace_range(start..end, "");
+        } else {
+            let tail = self.lines[er][self.byte_offset(er, ec)..].to_owned();
+            let start = self.byte_offset(sr, sc);
+            self.lines[sr].truncate(start);
+            self.lines[sr].push_str(&tail);
+            self.lines.drain(sr + 1..=er);
+        }
+        self.row = sr;
+        self.col = sc;
+        self.anchor = None;
+        true
+    }
+
     // -- édition ----------------------------------------------------------
 
     pub fn insert_char(&mut self, c: char) {
@@ -99,12 +188,14 @@ impl Buffer {
             self.insert_newline();
             return;
         }
+        self.delete_selection();
         let byte = self.byte_offset(self.row, self.col);
         self.lines[self.row].insert(byte, c);
         self.col += 1;
     }
 
     pub fn insert_newline(&mut self) {
+        self.delete_selection();
         let byte = self.byte_offset(self.row, self.col);
         let tail = self.lines[self.row].split_off(byte);
         self.lines.insert(self.row + 1, tail);
@@ -124,6 +215,7 @@ impl Buffer {
         if text.is_empty() {
             return;
         }
+        self.delete_selection();
         let incoming = split_lines(&text.replace("\r\n", "\n").replace('\r', "\n"));
 
         let byte = self.byte_offset(self.row, self.col);
@@ -147,6 +239,9 @@ impl Buffer {
     }
 
     pub fn backspace(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
         if self.col > 0 {
             let byte = self.byte_offset(self.row, self.col - 1);
             self.lines[self.row].remove(byte);
@@ -160,6 +255,9 @@ impl Buffer {
     }
 
     pub fn delete(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
         let len = self.lines[self.row].chars().count();
         if self.col < len {
             let byte = self.byte_offset(self.row, self.col);
@@ -176,6 +274,9 @@ impl Buffer {
     /// que le curseur aurait sauté, sans quoi les deux touches ne
     /// raconteraient pas la même histoire.
     pub fn delete_word_left(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
         let (row, col) = (self.row, self.col);
         self.word_left();
 
@@ -630,6 +731,142 @@ mod tests {
         buf.home();
         buf.delete_word_left();
         assert_eq!(buf.text(), "un");
+    }
+
+    // -- sélection ---------------------------------------------------------
+
+    #[test]
+    fn an_anchor_on_the_cursor_is_not_a_selection() {
+        let mut buf = Buffer::from_text("un");
+        buf.begin_selection();
+        assert_eq!(
+            buf.selection(),
+            None,
+            "une sélection vide n'existe pas : rien à surligner, rien à copier"
+        );
+    }
+
+    #[test]
+    fn selection_bounds_are_normalised_backwards_too() {
+        let mut buf = Buffer::from_text("un deux");
+        buf.begin_selection();
+        buf.word_left();
+        assert_eq!(
+            buf.selection(),
+            Some(((0, 3), (0, 7))),
+            "sélectionner à reculons rend les mêmes bornes qu'en avant"
+        );
+    }
+
+    #[test]
+    fn begin_selection_keeps_an_existing_anchor() {
+        let mut buf = Buffer::from_text("abc");
+        buf.begin_selection();
+        buf.left();
+        buf.begin_selection();
+        buf.left();
+        assert_eq!(
+            buf.selection(),
+            Some(((0, 1), (0, 3))),
+            "chaque Shift+flèche étend depuis l'ancre d'origine, elle ne repart pas du curseur"
+        );
+    }
+
+    #[test]
+    fn selected_text_spans_lines() {
+        let mut buf = Buffer::from_text("un\ndeux\ntrois");
+        buf.set_cursor(0, 1);
+        buf.begin_selection();
+        buf.set_cursor(2, 3);
+        assert_eq!(
+            buf.selected_text().as_deref(),
+            Some("n\ndeux\ntro"),
+            "les sauts de ligne font partie du texte sélectionné"
+        );
+    }
+
+    #[test]
+    fn delete_selection_removes_the_range_and_lands_at_its_start() {
+        let mut buf = Buffer::from_text("un\ndeux\ntrois");
+        buf.set_cursor(0, 1);
+        buf.begin_selection();
+        buf.set_cursor(2, 3);
+        assert!(buf.delete_selection());
+        assert_eq!(buf.text(), "uis", "les lignes traversées disparaissent entières");
+        assert_eq!(buf.cursor(), (0, 1), "le curseur se pose au début de la plage");
+        assert_eq!(buf.selection(), None);
+    }
+
+    #[test]
+    fn typing_replaces_the_selection() {
+        let mut buf = Buffer::from_text("un deux");
+        buf.begin_selection();
+        buf.word_left();
+        buf.insert_char('X');
+        assert_eq!(buf.text(), "un X", "la frappe remplace ce qui est surligné");
+    }
+
+    #[test]
+    fn pasting_replaces_the_selection() {
+        let mut buf = Buffer::from_text("un deux");
+        buf.begin_selection();
+        buf.word_left();
+        buf.insert_str("X\nY");
+        assert_eq!(buf.text(), "un X\nY");
+    }
+
+    #[test]
+    fn backspace_deletes_the_selection_and_nothing_else() {
+        let mut buf = Buffer::from_text("un deux");
+        buf.begin_selection();
+        buf.word_left();
+        buf.backspace();
+        assert_eq!(
+            buf.text(),
+            "un ",
+            "avec une sélection, Backspace la supprime sans mordre à sa gauche"
+        );
+    }
+
+    #[test]
+    fn delete_word_left_stops_at_the_selection() {
+        let mut buf = Buffer::from_text("un deux");
+        buf.begin_selection();
+        buf.left();
+        buf.delete_word_left();
+        assert_eq!(
+            buf.text(),
+            "un deu",
+            "la sélection prime : le mot à gauche reste intact"
+        );
+    }
+
+    #[test]
+    fn selection_counts_chars_not_bytes() {
+        let mut buf = Buffer::from_text("été");
+        buf.begin_selection();
+        buf.left();
+        buf.left();
+        assert_eq!(
+            buf.selected_text().as_deref(),
+            Some("té"),
+            "les bornes sont des caractères : un accent ne décale pas la découpe"
+        );
+        buf.delete_selection();
+        assert_eq!(buf.text(), "é");
+    }
+
+    #[test]
+    fn a_reload_drops_the_selection() {
+        let mut buf = Buffer::from_text("un deux");
+        buf.begin_selection();
+        buf.word_left();
+        buf.replace_preserving_cursor("autre chose");
+        assert_eq!(
+            buf.selection(),
+            None,
+            "le texte a changé sous la sélection : la garder surlignerait autre chose"
+        );
     }
 
     #[test]
